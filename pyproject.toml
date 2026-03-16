@@ -1,0 +1,28 @@
+[project]
+name = "flow-contraction"
+version = "0.1.0"
+description = "Flow matching meets contraction theory"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "cloudpickle>=3.1.2",
+    "flax>=0.12.5",
+    "jax[cuda13]>=0.9.1",
+    "setuptools<=71",
+    "tensorboard>=2.20.0",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=9.0.2",
+    "ruff>=0.15.4",
+]
+
+[tool.pytest.ini_options]
+pythonpath = ["."]
+
+[tool.ruff]
+line-length = 80
+
+[tool.ruff.lint]
+select = ["E", "F", "W"]
