@@ -8,8 +8,10 @@ dependencies = [
     "cloudpickle>=3.1.2",
     "flax>=0.12.5",
     "jax[cuda13]>=0.9.1",
+    "matplotlib>=3.10.8",
     "setuptools<=71",
     "tensorboard>=2.20.0",
+    "torch>=2.10.0",
 ]
 
 [dependency-groups]
@@ -17,6 +19,14 @@ dev = [
     "pytest>=9.0.2",
     "ruff>=0.15.4",
 ]
+
+[tool.uv.sources]
+torch = { index = "pytorch-cpu" }
+
+[[tool.uv.index]]
+name = "pytorch-cpu"
+url = "https://download.pytorch.org/whl/cpu"
+explicit = true
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
