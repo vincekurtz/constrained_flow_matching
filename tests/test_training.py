@@ -2,9 +2,11 @@ import jax
 import jax.numpy as jnp
 from architectures.flow import FlowMLP
 from flax import nnx
+import optax
 
-from training import loss_fn
+from training import loss_fn, train_step
 import pytest
+
 
 @pytest.fixture
 def model():
@@ -15,13 +17,19 @@ def model():
         rngs=nnx.Rngs(0),
     )
 
+
 @pytest.fixture
 def key():
     return jax.random.key(0)
 
 
-def test_loss_fn_output_shape(model, key):
-    """Loss function returns a scalar from a batch of data."""
+@pytest.fixture
+def optimizer(model):
+    return nnx.Optimizer(model, optax.adam(1e-3), wrt=nnx.Param)
+
+
+def test_loss_fn(model, key):
+    """Loss function returns a finite scalar from a batch of data."""
     batch_size = 5
     data_size = 4
     key0, key1, key2 = jax.random.split(key, 3)
@@ -31,3 +39,45 @@ def test_loss_fn_output_shape(model, key):
 
     loss = loss_fn(model, x1, x0, t)
     assert jnp.isscalar(loss)
+    assert jnp.isfinite(loss)
+
+
+def test_train_step_returns_scalar(model, optimizer, key):
+    """train_step returns a finite scalar loss."""
+    batch = jax.random.normal(key, (5, 4))
+    loss = train_step(model, optimizer, batch, key)
+    assert jnp.isscalar(loss)
+    assert jnp.isfinite(loss)
+    assert loss >= 0.0, "Loss should be non-negative (mean squared error)"
+
+
+def test_train_step_updates_parameters(model, optimizer, key):
+    """train_step modifies model parameters in-place."""
+    batch = jax.random.normal(key, (5, 4))
+
+    # Capture parameter values before the step
+    params_before = jax.tree.map(lambda x: x.copy(), nnx.state(model))
+
+    train_step(model, optimizer, batch, key)
+
+    params_after = nnx.state(model)
+    any_changed = any(
+        not jnp.array_equal(b, a)
+        for b, a in zip(
+            jax.tree.leaves(params_before), jax.tree.leaves(params_after)
+        )
+    )
+    assert any_changed, "Model parameters were not updated after train_step"
+
+
+def test_train_step_reduces_loss_over_iterations(model, optimizer, key):
+    """Loss decreases after many train_step calls on a fixed batch."""
+    batch = jax.random.normal(key, (32, 4))
+
+    first_loss = train_step(model, optimizer, batch, key)
+    for i in range(200):
+        step_key = jax.random.fold_in(key, i)
+        train_step(model, optimizer, batch, step_key)
+    last_loss = train_step(model, optimizer, batch, key)
+
+    assert last_loss < first_loss
