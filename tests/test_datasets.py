@@ -1,32 +1,42 @@
-import torch
 import pytest
+import torch
 from datasets.bimodal_distribution import BimodalDataset
+from datasets.unit_circle import UnitCircleDataset
 
 
-@pytest.fixture
-def dataset():
-    return BimodalDataset(num_samples=100)
+# ---------------------------------------------------------------------------
+# Common 2-D dataset tests (parametrized over all datasets)
+# ---------------------------------------------------------------------------
 
 
-def test_len(dataset):
+@pytest.fixture(params=[BimodalDataset, UnitCircleDataset])
+def dataset_2d(request):
+    return request.param(num_samples=100)
+
+
+def test_len(dataset_2d):
     """Dataset length matches num_samples."""
-    assert len(dataset) == 100
+    assert len(dataset_2d) == 100
 
 
-def test_getitem_shape(dataset):
+def test_getitem_shape(dataset_2d):
     """Each sample is a 2-D tensor."""
-    sample = dataset[0]
-    assert sample.shape == (2,)
+    assert dataset_2d[0].shape == (2,)
 
 
-def test_getitem_is_float(dataset):
+def test_getitem_is_float(dataset_2d):
     """Samples are floating-point tensors."""
-    assert dataset[0].dtype == torch.float32
+    assert dataset_2d[0].dtype == torch.float32
 
 
-def test_data_is_finite(dataset):
+def test_data_is_finite(dataset_2d):
     """All samples are finite (no NaN or Inf)."""
-    assert torch.isfinite(dataset.data).all()
+    assert torch.isfinite(dataset_2d.data).all()
+
+
+# ---------------------------------------------------------------------------
+# BimodalDataset-specific tests
+# ---------------------------------------------------------------------------
 
 
 def test_bimodal_means():
@@ -51,3 +61,15 @@ def test_custom_num_samples():
     ds = BimodalDataset(num_samples=50)
     assert len(ds) == 50
     assert ds.data.shape == (50, 2)
+
+
+# ---------------------------------------------------------------------------
+# UnitCircleDataset-specific tests
+# ---------------------------------------------------------------------------
+
+
+def test_unit_circle_points_on_unit_circle():
+    """All samples lie on the unit circle (radius ≈ 1)."""
+    ds = UnitCircleDataset(num_samples=512)
+    radii = ds.data.norm(dim=1)
+    assert torch.allclose(radii, torch.ones(512), atol=1e-5)
