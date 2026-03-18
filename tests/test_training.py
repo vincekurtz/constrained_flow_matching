@@ -1,10 +1,11 @@
 import jax
 import jax.numpy as jnp
 from architectures.flow import FlowMLP
+from datasets.bimodal_distribution import BimodalDataset
 from flax import nnx
 import optax
 
-from training import loss_fn, train_step
+from training import loss_fn, train_step, train
 import pytest
 
 
@@ -81,3 +82,36 @@ def test_train_step_reduces_loss_over_iterations(model, optimizer, key):
     last_loss = train_step(model, optimizer, batch, key)
 
     assert last_loss < first_loss
+
+
+def test_full_training():
+    """Test the full training loop with a simple example."""
+    dataset = BimodalDataset(num_samples=64)
+    model = FlowMLP(
+        data_size=2,
+        time_embedding_size=4,
+        hidden_sizes=(8, 8),
+        rngs=nnx.Rngs(0),
+    )
+
+    original_params = jax.tree.map(lambda x: x.copy(), nnx.state(model))
+
+    trained_model = train(
+        dataset=dataset,
+        model=model,
+        num_epochs=5,
+        batch_size=16,
+        learning_rate=1e-3,
+        seed=0,
+    )
+
+    assert isinstance(trained_model, nnx.Module)
+
+    trained_params = nnx.state(trained_model)
+    any_changed = any(
+        not jnp.array_equal(b, a)
+        for b, a in zip(
+            jax.tree.leaves(original_params), jax.tree.leaves(trained_params)
+        )
+    )
+    assert any_changed, "Model parameters were not updated after training"

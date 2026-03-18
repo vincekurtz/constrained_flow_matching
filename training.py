@@ -1,6 +1,9 @@
 from flax import nnx
 import jax.numpy as jnp
 import jax
+import optax
+from torch.utils.data import Dataset, DataLoader, default_collate
+
 
 def loss_fn(
     model: nnx.Module, x1: jax.Array, x0: jax.Array, t: jax.Array
@@ -28,6 +31,7 @@ def loss_fn(
     target = x1 - x0
     pred = model(xt, t)
     return jnp.mean(jnp.square(pred - target))
+
 
 @nnx.jit
 def train_step(
@@ -65,5 +69,61 @@ def train_step(
     return loss
 
 
-def train(dataloader, model, num_epochs, rng):
-    pass
+def train(
+    dataset: Dataset,
+    model: nnx.Module,
+    num_epochs: int,
+    batch_size: int,
+    learning_rate: float,
+    seed: int = 0,
+    print_frequency: int = 1,
+) -> nnx.Module:
+    """Train a simple flow-matching policy on the given dataset.
+
+    Args:
+        dataset: A PyTorch Dataset providing samples from the data distribution.
+        model: The flow model xdot = v(x, t) to train.
+        num_epochs: The number of training epochs.
+        batch_size: The size of each training batch.
+        learning_rate: The learning rate for the optimizer.
+        seed: A random seed for reproducibility.
+        print_frequency: How often to print training progress (in epochs).
+
+    Returns:
+        The trained flow model v(x, t).
+    """
+    # Create a dataloader that automatically shuffles the data and provides
+    # batches of jax arrays.
+    dataloader = DataLoader(
+        dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        collate_fn=lambda batch: jax.tree.map(
+            jnp.array, default_collate(batch)
+        ),
+    )
+
+    # Check that the dataloader produces batches of the correct shape and type
+    batch = next(iter(dataloader))
+    assert isinstance(batch, jax.Array), "Batch should be a jax.Array"
+    assert batch.shape[0] == batch_size, (
+        "Batch size {batch.shape[0]} does not match expected {batch_size}"
+    )
+
+    optimizer = nnx.Optimizer(model, optax.adam(learning_rate), wrt=nnx.Param)
+    rng = jax.random.key(seed)
+
+    # Training loop: optimizer and model parameters are updated in-place.
+    for epoch in range(num_epochs):
+        loss = 0.0
+
+        for batch in dataloader:
+            rng, step_rng = jax.random.split(rng)
+            batch_loss = train_step(model, optimizer, batch, step_rng)
+            loss += batch_loss
+
+        if (epoch + 1) % print_frequency == 0 or epoch == 0:
+            loss = loss / len(dataloader)
+            print(f"Epoch {epoch + 1}/{num_epochs}, Avg. loss: {loss:.4f}")
+
+    return model
