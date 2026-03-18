@@ -1,10 +1,10 @@
-from datasets.bimodal_distribution import BimodalDataset
+from datasets.unit_circle import UnitCircleDataset
 from architectures.flow import FlowMLP
 from examples.example_base import FlowExample
 from flax import nnx
 
 # Parse command line arguments (use --help to see options)
-parser = FlowExample.build_arg_parser("data/bimodal_model.pkl")
+parser = FlowExample.build_arg_parser("data/unit_circle_model.pkl")
 args = parser.parse_args()
 
 # Define the architecture of the flow model we'll train.
@@ -26,10 +26,10 @@ hyperparams = {
 
 # Run training and/or generation, depending on CLI flags
 example = FlowExample(
-    dataset=BimodalDataset(num_samples=1024),
+    dataset=UnitCircleDataset(num_samples=1024),
     model=model,
     save_path=args.save_path,
-    plot_lims=(-10, 10),
+    plot_lims=(-2, 2),
 )
 example.run(
     args,
