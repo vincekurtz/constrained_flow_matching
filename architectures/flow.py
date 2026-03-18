@@ -10,6 +10,8 @@ class SinusoidalPosEmb(nnx.Module):
 
     def __init__(self, dim: int):
         """Create a position embedding of the given dimension."""
+        assert dim > 2, "Positional embedding dimension must be greater than 2"
+        assert dim % 2 == 0, "Positional embedding dimension must be even"
         self.half_dim = dim // 2
 
     def __call__(self, x: jax.Array) -> jax.Array:
