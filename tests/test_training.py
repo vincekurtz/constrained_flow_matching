@@ -96,7 +96,7 @@ def test_full_training():
 
     original_params = jax.tree.map(lambda x: x.copy(), nnx.state(model))
 
-    trained_model = train(
+    trained_model, normalizer = train(
         dataset=dataset,
         model=model,
         num_epochs=5,
@@ -115,3 +115,16 @@ def test_full_training():
         )
     )
     assert any_changed, "Model parameters were not updated after training"
+
+    # Normalizer should be in eval mode (parameters frozen) after training
+    assert isinstance(normalizer, nnx.Module)
+
+    # Normalizer stats should roughly match the data
+    raw_data = jnp.array(dataset.data)
+    normalized_data = normalizer(raw_data)
+    assert jnp.allclose(
+        jnp.mean(normalized_data, axis=0), 0.0, atol=0.5
+    ), "Normalized data mean should be close to 0"
+    assert jnp.allclose(
+        jnp.std(normalized_data, axis=0), 1.0, atol=0.5
+    ), "Normalized data std should be close to 1"

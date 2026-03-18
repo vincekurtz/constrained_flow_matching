@@ -6,7 +6,7 @@ class BimodalDataset(Dataset):
 
     def __init__(
         self,
-        num_samples: int = 1000,
+        num_samples: int = 1024,
         mean1=[1.0, 5.0],
         mean2=[5.0, -5.0],
         std=1.0,

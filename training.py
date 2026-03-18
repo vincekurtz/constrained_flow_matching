@@ -1,8 +1,10 @@
 from flax import nnx
+from typing import Tuple
 import jax.numpy as jnp
 import jax
 import optax
 from torch.utils.data import Dataset, DataLoader, default_collate
+from architectures.normalizer import Normalizer
 
 
 def loss_fn(
@@ -77,7 +79,7 @@ def train(
     learning_rate: float,
     seed: int = 0,
     print_frequency: int = 1,
-) -> nnx.Module:
+) -> Tuple[nnx.Module, Normalizer]:
     """Train a simple flow-matching policy on the given dataset.
 
     Args:
@@ -91,6 +93,7 @@ def train(
 
     Returns:
         The trained flow model v(x, t).
+        The normalizer used to pre-process data passed to the flow model.
     """
     # Create a dataloader that automatically shuffles the data and provides
     # batches of jax arrays.
@@ -111,6 +114,7 @@ def train(
     )
 
     optimizer = nnx.Optimizer(model, optax.adam(learning_rate), wrt=nnx.Param)
+    normalizer = Normalizer(data_size=batch.shape[-1], rngs=nnx.Rngs(seed))
     rng = jax.random.key(seed)
 
     # Training loop: optimizer and model parameters are updated in-place.
@@ -119,6 +123,11 @@ def train(
 
         for batch in dataloader:
             rng, step_rng = jax.random.split(rng)
+
+            # Normalize the batch, updating normalizer stats in-place.
+            batch = normalizer(batch)
+
+            # Perform a SGD step, updating model parameters in-place.
             batch_loss = train_step(model, optimizer, batch, step_rng)
             loss += batch_loss
 
@@ -126,4 +135,7 @@ def train(
             loss = loss / len(dataloader)
             print(f"Epoch {epoch + 1}/{num_epochs}, Avg. loss: {loss:.4f}")
 
-    return model
+    # Freeze normalizer stats after training
+    normalizer.eval()
+
+    return model, normalizer
