@@ -15,5 +15,5 @@ uv run -m examples.bimodal --train
 Use the trained model to generate samples, and visualize them alongside the
 training data:
 ```
-uv run -m examples.bimodal --test
+uv run -m examples.bimodal --generate
 ```

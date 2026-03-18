@@ -18,7 +18,7 @@ parser.add_argument(
     help="Train the flow-matching model and save the trained parameters.",
 )
 parser.add_argument(
-    "--test",
+    "--generate",
     action="store_true",
     help="Load the trained model parameters and visualize generated samples.",
 )
@@ -59,7 +59,7 @@ if args.train:
     with open(save_path, "wb") as f:
         cloudpickle.dump({"model": model, "normalizer": normalizer}, f)
 
-if args.test:
+if args.generate:
     print("Loading trained model and normalizer from", args.save_path)
     with open(args.save_path, "rb") as f:
         data = cloudpickle.load(f)
@@ -118,5 +118,5 @@ if args.test:
     plt.tight_layout()
     plt.show()
 
-if not args.train and not args.test:
+if not args.train and not args.generate:
     parser.print_help()
