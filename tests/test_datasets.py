@@ -3,6 +3,7 @@ import torch
 from datasets.bimodal_distribution import BimodalDataset
 from datasets.unit_circle import UnitCircleDataset
 from datasets.star import StarDataset
+from datasets.spiral import SpiralDataset
 
 
 # ---------------------------------------------------------------------------
@@ -10,7 +11,9 @@ from datasets.star import StarDataset
 # ---------------------------------------------------------------------------
 
 
-@pytest.fixture(params=[BimodalDataset, UnitCircleDataset, StarDataset])
+@pytest.fixture(
+    params=[BimodalDataset, UnitCircleDataset, StarDataset, SpiralDataset]
+)
 def dataset_2d(request):
     return request.param(num_samples=100)
 
