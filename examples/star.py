@@ -11,17 +11,17 @@ args = parser.parse_args()
 model = FlowMLP(
     data_size=2,
     time_embedding_size=4,
-    hidden_sizes=(128, 128),
+    hidden_sizes=(64, 64, 64, 64),
     rngs=nnx.Rngs(0),
 )
 
 # Define training hyperparameters
 hyperparams = {
-    "num_epochs": 1000,
-    "batch_size": 64,
-    "learning_rate": 3e-4,
+    "num_epochs": 5000,
+    "batch_size": 256,
+    "learning_rate": 1e-3,
     "seed": 0,
-    "print_frequency": 10,
+    "print_frequency": 100,
 }
 
 # Run training and/or generation, depending on CLI flags
