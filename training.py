@@ -5,6 +5,7 @@ import jax
 import optax
 from torch.utils.data import Dataset, DataLoader, default_collate
 from architectures.normalizer import Normalizer
+from datetime import datetime
 
 
 def loss_fn(
@@ -118,6 +119,7 @@ def train(
     rng = jax.random.key(seed)
 
     # Training loop: optimizer and model parameters are updated in-place.
+    start_time = datetime.now()
     for epoch in range(num_epochs):
         loss = 0.0
 
@@ -133,7 +135,12 @@ def train(
 
         if (epoch + 1) % print_frequency == 0 or epoch == 0:
             loss = loss / len(dataloader)
-            print(f"Epoch {epoch + 1}/{num_epochs}, Avg. loss: {loss:.4f}")
+            elapsed = datetime.now() - start_time
+            print(
+                f"Epoch {epoch + 1}/{num_epochs}"
+                f" | Loss {loss:.4f}"
+                f" | Time {elapsed}"
+            )
 
     # Freeze normalizer stats after training
     normalizer.eval()
