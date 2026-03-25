@@ -106,11 +106,11 @@ class FlowExample:
             lmbda = -jnp.sum(grad_g * x_dot, axis=-1) / jnp.sum(
                 grad_g**2, axis=-1
             )
-            x_dot = x_dot - lmbda[:, None] * grad_g
+            x_dot = x_dot + lmbda[:, None] * grad_g
 
             # quadratic penalty on g(x) to encourage trajectories to stay on the
             # constraint manifold
-            penalty_strength = 0.1
+            penalty_strength = 10.0
             x_dot = x_dot - penalty_strength * g_x * grad_g
 
             x_next = x + dt * x_dot
@@ -123,6 +123,12 @@ class FlowExample:
         #       xs.append(x)
         timesteps = jnp.arange(0, 1.0, dt)
         x, xs = jax.lax.scan(_step_fn, x, timesteps)
+
+        # Measure constraint violation
+        g_x = g(x)
+        print("Constraint violation: mean |g(x)| =", jnp.mean(jnp.abs(g_x)))
+        print("Constraint violation: max |g(x)| =", jnp.max(jnp.abs(g_x)))
+        print("Constraint violation: std |g(x)| =", jnp.std(jnp.abs(g_x)))
 
         # Push data samples back to the original scale
         x = normalizer.unnormalize(x)
