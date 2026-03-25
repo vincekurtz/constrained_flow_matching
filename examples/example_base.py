@@ -73,13 +73,20 @@ class FlowExample:
         with open(self.save_path, "wb") as f:
             cloudpickle.dump({"model": model, "normalizer": normalizer}, f)
 
-    def generate(self, num_samples: int = 1000, dt: float = 0.01):
+    def generate(self, num_samples: int = 1000, dt: float = 0.001):
         """Load the saved model and plot generated samples."""
         print("Loading trained model and normalizer from", self.save_path)
         with open(self.save_path, "rb") as f:
             data = cloudpickle.load(f)
         model = data["model"]
         normalizer = data["normalizer"]
+
+        # Hackily assume that the constraint manifold is the unit circle.
+        # TODO: generalize to other constraint manifolds.
+        def g(x):
+            """The constraint manifold g(x) = 0."""
+            x = normalizer.unnormalize(x)
+            return jnp.sum(jnp.square(x), axis=-1) - 1.0
 
         print("Generating samples...")
         rng = jax.random.key(42)
@@ -88,7 +95,16 @@ class FlowExample:
         def _step_fn(x, t):
             """Single forward Euler step on the flow ODE xdot = v(x, t)."""
             t_reshaped = jnp.full((x.shape[0],), t)
-            x_next = x + dt * model(x, t_reshaped)
+            x_dot = model(x, t_reshaped)
+
+            # quadratic penalty on g(x) to encourage trajectories to stay on the
+            # constraint manifold
+            penalty_strength = 10.0
+            g_x = g(x)[:, None]  # (batch_size, 1)
+            grad_g = jax.vmap(jax.grad(g))(x)
+            x_dot = x_dot - penalty_strength * g_x * grad_g
+
+            x_next = x + dt * x_dot
             return x_next, x_next
 
         # Generate samples by integrating the flow ODE. This is a fast
