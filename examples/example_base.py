@@ -95,13 +95,22 @@ class FlowExample:
         def _step_fn(x, t):
             """Single forward Euler step on the flow ODE xdot = v(x, t)."""
             t_reshaped = jnp.full((x.shape[0],), t)
-            x_dot = model(x, t_reshaped)
+            x_dot = model(x, t_reshaped)  # v(x, t) from the learned model
+
+            g_x = g(x)[:, None]  # (batch_size, 1)
+            grad_g = jax.vmap(jax.grad(g))(x)
+
+            # Lagrange multiplier, analytical solution,
+            #   λ = − [∇ g(x) ∇ g(x)']⁻¹∇g(x) v(x, t)
+            # This projects all flows to be tangent to the constraint manifold.
+            lmbda = -jnp.sum(grad_g * x_dot, axis=-1) / jnp.sum(
+                grad_g**2, axis=-1
+            )
+            x_dot = x_dot - lmbda[:, None] * grad_g
 
             # quadratic penalty on g(x) to encourage trajectories to stay on the
             # constraint manifold
-            penalty_strength = 10.0
-            g_x = g(x)[:, None]  # (batch_size, 1)
-            grad_g = jax.vmap(jax.grad(g))(x)
+            penalty_strength = 0.1
             x_dot = x_dot - penalty_strength * g_x * grad_g
 
             x_next = x + dt * x_dot
