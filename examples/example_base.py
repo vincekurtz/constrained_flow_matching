@@ -73,7 +73,7 @@ class FlowExample:
         with open(self.save_path, "wb") as f:
             cloudpickle.dump({"model": model, "normalizer": normalizer}, f)
 
-    def generate(self, num_samples: int = 1000, dt: float = 0.001):
+    def generate(self, num_samples: int = 1000, dt: float = 1e-3):
         """Load the saved model and plot generated samples."""
         print("Loading trained model and normalizer from", self.save_path)
         with open(self.save_path, "rb") as f:
@@ -86,14 +86,17 @@ class FlowExample:
         def g(x):
             """The constraint manifold g(x) = 0."""
             x = normalizer.unnormalize(x)
-            return jnp.sum(jnp.square(x), axis=-1) - 1.0
+            violation = jnp.sqrt(jnp.sum(jnp.square(x), axis=-1)) - 1.0
+            return 10 * violation
 
         print("Generating samples...")
         rng = jax.random.key(42)
         x = jax.random.normal(rng, (num_samples, 2))  # Initial Gaussian noise
 
-        def _step_fn(x, t):
+        def _step_fn(carry, t):
             """Single forward Euler step on the flow ODE xdot = v(x, t)."""
+            x, lmbda = carry
+
             t_reshaped = jnp.full((x.shape[0],), t)
             x_dot = model(x, t_reshaped)  # v(x, t) from the learned model
 
@@ -103,18 +106,25 @@ class FlowExample:
             # Lagrange multiplier, analytical solution,
             #   λ = − [∇ g(x) ∇ g(x)']⁻¹∇g(x) v(x, t)
             # This projects all flows to be tangent to the constraint manifold.
-            lmbda = -jnp.sum(grad_g * x_dot, axis=-1) / jnp.sum(
-                grad_g**2, axis=-1
-            )
-            x_dot = x_dot + lmbda[:, None] * grad_g
+            # lmbda = -jnp.sum(grad_g * x_dot, axis=-1) / jnp.sum(
+            #     grad_g**2, axis=-1
+            # )
+
+            # Lagrange multiplier, continuous dynamics:
+            # See Platt and Barr, Constrained Differential Optimization, 1987.
+            lmbda_dot = g_x[:, 0]
+            dt_lmbda = 10 * dt / (1 - t + 1e-8)
+            lmbda = lmbda + dt_lmbda * lmbda_dot
+
+            # Lagrange multiplier contribution to the flow dynamics:
+            x_dot = x_dot - lmbda[:, None] * grad_g
 
             # quadratic penalty on g(x) to encourage trajectories to stay on the
             # constraint manifold
-            penalty_strength = 10.0
-            x_dot = x_dot - penalty_strength * g_x * grad_g
+            x_dot = x_dot - g_x * grad_g
 
             x_next = x + dt * x_dot
-            return x_next, x_next
+            return (x_next, lmbda), x_next
 
         # Generate samples by integrating the flow ODE. This is a fast
         # (compiled, batched) JAX version of:
@@ -122,7 +132,11 @@ class FlowExample:
         #       x += dt * model(x, t)
         #       xs.append(x)
         timesteps = jnp.arange(0, 1.0, dt)
-        x, xs = jax.lax.scan(_step_fn, x, timesteps)
+        (x, lmbda), xs = jax.lax.scan(_step_fn, (x, jnp.zeros(x.shape[0])), timesteps)
+
+        print(
+            f"Final lagrange multipliers: min {jnp.min(lmbda)}, mean {jnp.mean(lmbda)}, max {jnp.max(lmbda)}"
+        )
 
         # Measure constraint violation
         g_x = g(x)
