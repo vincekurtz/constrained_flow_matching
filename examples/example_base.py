@@ -73,7 +73,7 @@ class FlowExample:
         with open(self.save_path, "wb") as f:
             cloudpickle.dump({"model": model, "normalizer": normalizer}, f)
 
-    def generate(self, num_samples: int = 1000, dt: float = 1e-3):
+    def generate(self, num_samples: int = 1000, dt: float = 1e-4):
         """Load the saved model and plot generated samples."""
         print("Loading trained model and normalizer from", self.save_path)
         with open(self.save_path, "rb") as f:
@@ -106,7 +106,7 @@ class FlowExample:
             # Lagrange multiplier, analytical solution,
             #   λ = − [∇ g(x) ∇ g(x)']⁻¹∇g(x) v(x, t)
             # This projects all flows to be tangent to the constraint manifold.
-            # lmbda = -jnp.sum(grad_g * x_dot, axis=-1) / jnp.sum(
+            # lmbda = jnp.sum(grad_g * x_dot, axis=-1) / jnp.sum(
             #     grad_g**2, axis=-1
             # )
 
