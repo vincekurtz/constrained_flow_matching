@@ -9,7 +9,7 @@ args = parser.parse_args()
 
 # Define the architecture of the flow model we'll train.
 model = FlowMLP(
-    data_size=2,
+    data_shape=(2,),
     time_embedding_size=4,
     hidden_sizes=(64, 64),
     rngs=nnx.Rngs(0),

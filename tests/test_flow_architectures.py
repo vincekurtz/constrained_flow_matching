@@ -55,9 +55,9 @@ def test_sinusoidal_different_times_give_different_embeddings():
 
 
 def test_flowmlp_output_shape():
-    """Output shape matches (batch, data_size)."""
+    """Output shape matches (batch, *data_shape)."""
     model = FlowMLP(
-        data_size=4,
+        data_shape=(4,),
         time_embedding_size=16,
         hidden_sizes=(32, 32),
         rngs=nnx.Rngs(0),
@@ -71,7 +71,7 @@ def test_flowmlp_output_shape():
 def test_flowmlp_output_is_finite():
     """Forward pass produces finite values."""
     model = FlowMLP(
-        data_size=4,
+        data_shape=(4,),
         time_embedding_size=16,
         hidden_sizes=(32, 32),
         rngs=nnx.Rngs(0),
@@ -85,7 +85,7 @@ def test_flowmlp_output_is_finite():
 def test_flowmlp_sensitive_to_time():
     """Different time inputs produce different outputs."""
     model = FlowMLP(
-        data_size=4,
+        data_shape=(4,),
         time_embedding_size=16,
         hidden_sizes=(32,),
         rngs=nnx.Rngs(0),
@@ -99,7 +99,7 @@ def test_flowmlp_sensitive_to_time():
 def test_flowmlp_sensitive_to_input():
     """Different x inputs produce different outputs."""
     model = FlowMLP(
-        data_size=4,
+        data_shape=(4,),
         time_embedding_size=16,
         hidden_sizes=(32,),
         rngs=nnx.Rngs(0),
@@ -110,3 +110,17 @@ def test_flowmlp_sensitive_to_input():
     y0 = model(x0, t)
     y1 = model(x1, t)
     assert not jnp.allclose(y0, y1)
+
+
+def test_flowmlp_image_shape():
+    """Works for image-shaped inputs; output has the same shape as input."""
+    model = FlowMLP(
+        data_shape=(4, 4, 2),
+        time_embedding_size=16,
+        hidden_sizes=(32, 32),
+        rngs=nnx.Rngs(0),
+    )
+    x = jnp.ones((8, 4, 4, 2))
+    t = jnp.linspace(0, 1, 8)
+    y = model(x, t)
+    assert y.shape == x.shape

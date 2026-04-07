@@ -12,7 +12,7 @@ import pytest
 @pytest.fixture
 def model():
     return FlowMLP(
-        data_size=4,
+        data_shape=(4,),
         time_embedding_size=8,
         hidden_sizes=(16, 16),
         rngs=nnx.Rngs(0),
@@ -88,7 +88,7 @@ def test_full_training():
     """Test the full training loop with a simple example."""
     dataset = BimodalDataset(num_samples=64)
     model = FlowMLP(
-        data_size=2,
+        data_shape=(2,),
         time_embedding_size=4,
         hidden_sizes=(8, 8),
         rngs=nnx.Rngs(0),
