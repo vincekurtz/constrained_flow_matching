@@ -30,7 +30,8 @@ def loss_fn(
     Returns:
         The flow-matching loss L.
     """
-    xt = t[:, None] * x1 + (1 - t)[:, None] * x0
+    t_bc = t.reshape((t.shape[0],) + (1,) * (x1.ndim - 1))
+    xt = t_bc * x1 + (1 - t_bc) * x0
     target = x1 - x0
     pred = model(xt, t)
     return jnp.mean(jnp.square(pred - target))
