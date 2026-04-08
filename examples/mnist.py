@@ -17,16 +17,16 @@ args = parser.parse_args()
 # Define the architecture of the flow model we'll train.
 model = FlowUNet(
     data_shape=(28, 28, 1),
-    time_embedding_size=16,
-    channels=(16, 32, 64),
+    time_embedding_size=32,
+    channels=(16, 32, 64, 128),
     rngs=nnx.Rngs(0),
 )
 
 # Define training hyperparameters
 hyperparams = {
-    "num_epochs": 50,
-    "batch_size": 256,
-    "learning_rate": 1e-3,
+    "num_epochs": 10,
+    "batch_size": 16,
+    "learning_rate": 3e-4,
     "seed": 0,
     "print_frequency": 1,
 }
@@ -54,7 +54,7 @@ example = MNISTExample(
 example.run(
     args,
     generate_num_samples=25,
-    generate_dt=0.1,
+    generate_dt=0.01,
     parser=parser,
     **hyperparams,
 )
