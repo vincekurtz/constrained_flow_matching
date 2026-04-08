@@ -151,7 +151,12 @@ class FlowExample:
         plt.show()
 
     def run(
-        self, args, num_samples_to_generate=1000, parser=None, **train_kwargs
+        self,
+        args,
+        generate_num_samples=1000,
+        generate_dt=0.01,
+        parser=None,
+        **train_kwargs,
     ):
         """Dispatch to train/generate based on parsed CLI args.
 
@@ -162,7 +167,9 @@ class FlowExample:
         if args.train:
             self.train(**train_kwargs)
         if args.generate:
-            x, xs = self.generate(num_samples=num_samples_to_generate)
+            x, xs = self.generate(
+                num_samples=generate_num_samples, dt=generate_dt
+            )
             self.plot(x, xs)
         if not args.train and not args.generate:
             if parser is not None:

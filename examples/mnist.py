@@ -51,4 +51,10 @@ example = MNISTExample(
     model=model,
     save_path=args.save_path,
 )
-example.run(args, num_samples_to_generate=25, parser=parser, **hyperparams)
+example.run(
+    args,
+    generate_num_samples=25,
+    generate_dt=0.1,
+    parser=parser,
+    **hyperparams,
+)
