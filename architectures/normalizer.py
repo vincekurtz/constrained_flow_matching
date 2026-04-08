@@ -34,21 +34,18 @@ class Normalizer:
             A Normalizer with the computed mean and std.
         """
         count = 0
-        running_sum = None
-        running_sum_sq = None
+        running_sum = 0
+        running_sum_sq = 0
 
+        # TODO(vincekurtz): consider jit-compiling this loop if it becomes a
+        # bottleneck on large problems.
         for batch in dataloader:
             batch_size = batch.shape[0]
             batch_sum = jnp.sum(batch, axis=0)
             batch_sum_sq = jnp.sum(batch**2, axis=0)
 
-            if running_sum is None:
-                running_sum = batch_sum
-                running_sum_sq = batch_sum_sq
-            else:
-                running_sum = running_sum + batch_sum
-                running_sum_sq = running_sum_sq + batch_sum_sq
-
+            running_sum += batch_sum
+            running_sum_sq += batch_sum_sq
             count += batch_size
 
         mean = running_sum / count
