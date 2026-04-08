@@ -1,6 +1,7 @@
 import pytest
 import torch
 from datasets.bimodal_distribution import BimodalDataset
+from datasets.mnist import MNISTDataset
 from datasets.unit_circle import UnitCircleDataset
 from datasets.star import StarDataset
 from datasets.spiral import SpiralDataset
@@ -77,3 +78,49 @@ def test_unit_circle_points_on_unit_circle():
     ds = UnitCircleDataset(num_samples=512)
     radii = ds.data.norm(dim=1)
     assert torch.allclose(radii, torch.ones(512), atol=1e-5)
+
+
+# ---------------------------------------------------------------------------
+# MNISTDataset tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def mnist_train():
+    return MNISTDataset(train=True)
+
+
+@pytest.fixture(scope="module")
+def mnist_test():
+    return MNISTDataset(train=False)
+
+
+def test_mnist_train_len(mnist_train):
+    """Training split has 60 000 samples."""
+    assert len(mnist_train) == 60000
+
+
+def test_mnist_test_len(mnist_test):
+    """Test split has 10 000 samples."""
+    assert len(mnist_test) == 10000
+
+
+def test_mnist_sample_shape(mnist_train):
+    """Each sample has shape (28, 28, 1)."""
+    assert mnist_train[0].shape == (28, 28, 1)
+
+
+def test_mnist_sample_dtype(mnist_train):
+    """Samples are float32 tensors."""
+    assert mnist_train[0].dtype == torch.float32
+
+
+def test_mnist_pixel_range(mnist_train):
+    """Pixel values lie in [0, 1]."""
+    sample = mnist_train[0]
+    assert sample.min() >= 0.0 and sample.max() <= 1.0
+
+
+def test_mnist_data_tensor_shape(mnist_train):
+    """The full data tensor has shape (60000, 28, 28, 1)."""
+    assert mnist_train.data.shape == (60000, 28, 28, 1)

@@ -12,6 +12,7 @@ dependencies = [
     "setuptools<=71",
     "tensorboard>=2.20.0",
     "torch>=2.10.0",
+    "torchvision>=0.25.0",
 ]
 
 [dependency-groups]
@@ -22,6 +23,7 @@ dev = [
 
 [tool.uv.sources]
 torch = { index = "pytorch-cpu" }
+torchvision = { index = "pytorch-cpu" }
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
