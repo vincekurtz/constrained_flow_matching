@@ -1,6 +1,5 @@
-from pathlib import Path
+import math
 
-import cloudpickle
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
@@ -31,51 +30,24 @@ hyperparams = {
     "print_frequency": 1,
 }
 
-
-def generate(save_path: str, num_samples: int = 25, dt: float = 0.01):
-    """Load the saved model and display a grid of generated digit images."""
-    print("Loading trained model and normalizer from", save_path)
-    with open(save_path, "rb") as f:
-        data = cloudpickle.load(f)
-    model = data["model"]
-    normalizer = data["normalizer"]
-
-    print("Generating samples...")
-    rng = jax.random.key(42)
-    x = jax.random.normal(rng, (num_samples, 28, 28, 1))
-
-    def _step_fn(x, t):
-        """Single forward Euler step on the flow ODE xdot = v(x, t)."""
-        t_batch = jnp.full((x.shape[0],), t)
-        return x + dt * model(x, t_batch), None
-
-    timesteps = jnp.arange(0.0, 1.0, dt)
-    x, _ = jax.lax.scan(_step_fn, x, timesteps)
-
-    x = normalizer.unnormalize(x)
-    x = jnp.clip(x, 0.0, 1.0)
-
-    print("Plotting")
-    n = int(num_samples**0.5)
-    fig, axes = plt.subplots(n, n, figsize=(n, n))
-    for ax, i in zip(axes.flat, range(num_samples)):
-        ax.imshow(x[i].squeeze(-1), cmap="gray", vmin=0, vmax=1)
-        ax.axis("off")
-    plt.suptitle("Generated MNIST Digits")
-    plt.tight_layout()
-    plt.show()
+# Override the base example's simple 2D plots
+class MNISTExample(FlowExample):
+    def plot(self, x: jax.Array, xs: jax.Array):
+        """Visualize generated MNIST digits."""
+        x = jnp.clip(x, 0.0, 1.0)
+        n = math.isqrt(x.shape[0])
+        fig, axes = plt.subplots(n, n, figsize=(n, n))
+        for ax, i in zip(axes.flat, range(n * n)):
+            ax.imshow(x[i].squeeze(-1), cmap="gray", vmin=0, vmax=1)
+            ax.axis("off")
+        plt.suptitle("Generated MNIST Digits")
+        plt.tight_layout()
+        plt.show()
 
 
-if args.train:
-    example = FlowExample(
-        dataset=MNISTDataset(train=True),
-        model=model,
-        save_path=Path(args.save_path),
-    )
-    example.train(**hyperparams)
-
-if args.generate:
-    generate(args.save_path)
-
-if not args.train and not args.generate:
-    parser.print_help()
+example = MNISTExample(
+    dataset=MNISTDataset(train=True),
+    model=model,
+    save_path=args.save_path,
+)
+example.run(args, num_samples_to_generate=25, parser=parser, **hyperparams)

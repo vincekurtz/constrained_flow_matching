@@ -10,11 +10,11 @@ import training
 
 
 class FlowExample:
-    """Reusable scaffolding for 2-D flow-matching examples.
+    """Reusable scaffolding for flow-matching examples.
 
     Handles argument parsing, training, saving/loading, sample generation,
-    and plotting. Each concrete example script supplies the dataset, model,
-    and hyperparameters specific to that experiment.
+    and basic plotting. Each concrete example script supplies the dataset,
+    model, and hyperparameters specific to that experiment.
     """
 
     def __init__(
@@ -73,8 +73,17 @@ class FlowExample:
         with open(self.save_path, "wb") as f:
             cloudpickle.dump({"model": model, "normalizer": normalizer}, f)
 
-    def generate(self, num_samples: int = 1000, dt: float = 0.01):
-        """Load the saved model and plot generated samples."""
+    def generate(self, num_samples: int = 1000, dt: float = 0.01) -> jax.Array:
+        """Load the saved model and generate samples.
+
+        Args:
+            num_samples: Number of samples to generate.
+            dt: Step size for the forward Euler integrator.
+
+        Returns:
+            Generated samples of shape (num_samples, *data_shape).
+            Full trajectories of shape (num_steps, num_samples, *data_shape)``.
+        """
         print("Loading trained model and normalizer from", self.save_path)
         with open(self.save_path, "rb") as f:
             data = cloudpickle.load(f)
@@ -83,26 +92,33 @@ class FlowExample:
 
         print("Generating samples...")
         rng = jax.random.key(42)
-        x = jax.random.normal(rng, (num_samples, 2))  # Initial Gaussian noise
+        x = jax.random.normal(rng, (num_samples,) + model.data_shape)
 
         def _step_fn(x, t):
             """Single forward Euler step on the flow ODE xdot = v(x, t)."""
-            t_reshaped = jnp.full((x.shape[0],), t)
-            x_next = x + dt * model(x, t_reshaped)
+            t_batch = jnp.full((x.shape[0],), t)
+            x_next = x + dt * model(x, t_batch)
             return x_next, x_next
 
-        # Generate samples by integrating the flow ODE. This is a fast
-        # (compiled, batched) JAX version of:
-        #   for t in timesteps:
-        #       x += dt * model(x, t)
-        #       xs.append(x)
         timesteps = jnp.arange(0, 1.0, dt)
         x, xs = jax.lax.scan(_step_fn, x, timesteps)
 
-        # Push data samples back to the original scale
-        x = normalizer.unnormalize(x)
+        return normalizer.unnormalize(x), normalizer.unnormalize(xs)
 
-        print("Plotting")
+    def plot(self, x: jax.Array, xs: jax.Array):
+        """Plot generated samples. Override for non-2D data.
+
+        The default implementation produces a three-panel scatter / trajectory
+        plot suitable for 2-D data.
+
+        Args:
+            x: Final generated samples, shape ``(num_samples, 2)``.
+            xs: Full trajectory, shape ``(num_steps, num_samples, 2)``.
+        """
+        assert x.ndim == 2 and x.shape[1] == 2, (
+            "Default plot only supports 2-D data"
+        )
+
         lo, hi = self.plot_lims
         fig, ax = plt.subplots(1, 3, figsize=(18, 6), sharex=True, sharey=True)
 
@@ -120,7 +136,6 @@ class FlowExample:
         ax[1].set_aspect("equal")
 
         ax[2].set_title("Flow Trajectories")
-        xs = normalizer.unnormalize(xs)
         ax[2].scatter(
             xs[0, :, 0], xs[0, :, 1], alpha=0.5, label="Initial Noise"
         )
@@ -135,7 +150,9 @@ class FlowExample:
         plt.tight_layout()
         plt.show()
 
-    def run(self, args, parser=None, **train_kwargs):
+    def run(
+        self, args, num_samples_to_generate=1000, parser=None, **train_kwargs
+    ):
         """Dispatch to train/generate based on parsed CLI args.
 
         Any keyword arguments are forwarded to :meth:`train`, so callers can
@@ -145,7 +162,8 @@ class FlowExample:
         if args.train:
             self.train(**train_kwargs)
         if args.generate:
-            self.generate()
+            x, xs = self.generate(num_samples=num_samples_to_generate)
+            self.plot(x, xs)
         if not args.train and not args.generate:
             if parser is not None:
                 parser.print_help()
