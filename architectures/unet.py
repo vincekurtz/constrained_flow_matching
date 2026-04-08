@@ -176,7 +176,7 @@ class FlowUNet(nnx.Module):
         ):
             h = jax.image.resize(
                 h,
-                (*h.shape[:1], h.shape[1] * 2, h.shape[2] * 2, *h.shape[3:]),
+                (h.shape[0], skip.shape[1], skip.shape[2], h.shape[3]),
                 method="nearest",
             )
             h = up_conv(h)
