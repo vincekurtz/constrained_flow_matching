@@ -57,7 +57,7 @@ class Normalizer:
 
         return cls(mean, std)
 
-    def __call__(self, x: jax.Array) -> jax.Array:
+    def normalize(self, x: jax.Array) -> jax.Array:
         """Normalize the input data x."""
         return (x - self.mean) / self.std
 

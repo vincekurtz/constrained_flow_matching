@@ -120,6 +120,7 @@ def train(
 
     # Compute normalizer stats from the full dataset before training
     normalizer = Normalizer.from_dataloader(dataloader)
+    jit_normalize = jax.jit(normalizer.normalize)
 
     # Training loop: optimizer and model parameters are updated in-place.
     start_time = datetime.now()
@@ -130,7 +131,7 @@ def train(
             rng, step_rng = jax.random.split(rng)
 
             # Normalize the batch using pre-computed stats.
-            batch = normalizer(batch)
+            batch = jit_normalize(batch)
 
             # Perform a SGD step, updating model parameters in-place.
             batch_loss = train_step(model, optimizer, batch, step_rng)

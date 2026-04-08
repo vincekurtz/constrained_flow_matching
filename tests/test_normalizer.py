@@ -53,7 +53,7 @@ def test_normalize_and_unnormalize_are_inverse():
     normalizer = Normalizer.from_dataloader(batches)
 
     x = batches[0]
-    x_reconstructed = normalizer.unnormalize(normalizer(x))
+    x_reconstructed = normalizer.unnormalize(normalizer.normalize(x))
     assert jnp.allclose(x_reconstructed, x, atol=1e-5)
 
 
@@ -68,6 +68,6 @@ def test_normalized_data_has_zero_mean_unit_var():
     normalizer = Normalizer.from_dataloader(batches)
 
     all_data = jnp.concatenate(batches, axis=0)
-    normalized = normalizer(all_data)
+    normalized = normalizer.normalize(all_data)
     assert jnp.allclose(jnp.mean(normalized, axis=0), 0.0, atol=0.1)
     assert jnp.allclose(jnp.std(normalized, axis=0), 1.0, atol=0.1)

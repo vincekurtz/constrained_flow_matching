@@ -122,7 +122,7 @@ def test_full_training():
 
     # Normalizer stats should roughly match the data
     raw_data = jnp.array(dataset.data)
-    normalized_data = normalizer(raw_data)
+    normalized_data = normalizer.normalize(raw_data)
     assert jnp.allclose(
         jnp.mean(normalized_data, axis=0), 0.0, atol=0.5
     ), "Normalized data mean should be close to 0"
