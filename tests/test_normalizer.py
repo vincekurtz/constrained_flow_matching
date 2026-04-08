@@ -1,58 +1,73 @@
 import jax
 import jax.numpy as jnp
-from flax import nnx
 
 from architectures.normalizer import Normalizer
 
 
-def test_running_stats_track_data_distribution():
-    """Running mean and std are approximately correct after batched updates."""
-    data_size = 3
+def _make_batches(key, shape, true_mean, true_std, num_batches=300):
+    """Generate batches of data with a known distribution."""
+    batches = []
+    for _ in range(num_batches):
+        key, subkey = jax.random.split(key)
+        batch = jax.random.normal(subkey, shape) * true_std + true_mean
+        batches.append(batch)
+    return batches
+
+
+def test_stats_track_data_distribution():
+    """Mean and std are approximately correct after fitting."""
     true_mean = jnp.array([2.0, -1.0, 5.0])
     true_std = jnp.array([0.5, 2.0, 1.5])
 
-    normalizer = Normalizer(data_size=data_size, rngs=nnx.Rngs(0))
+    key = jax.random.key(0)
+    batches = _make_batches(key, (64, 3), true_mean, true_std)
+
+    normalizer = Normalizer.from_dataloader(batches)
+
+    assert jnp.allclose(normalizer.mean, true_mean, atol=0.1)
+    assert jnp.allclose(normalizer.std, true_std, atol=0.1)
+
+
+def test_stats_track_image_data():
+    """Mean and std are correct for image-shaped data."""
+    true_mean = jnp.ones((4, 4, 3)) * 5.0
+    true_std = jnp.ones((4, 4, 3)) * 2.0
 
     key = jax.random.key(0)
-    for _ in range(300):
-        key, subkey = jax.random.split(key)
-        batch = (
-            jax.random.normal(subkey, (64, data_size)) * true_std + true_mean
-        )
-        normalizer(batch)
+    batches = _make_batches(key, (32, 4, 4, 3), true_mean, true_std, num_batches=100)
 
-    assert jnp.allclose(normalizer.batch_norm.mean[...], true_mean, atol=0.1)
-    assert jnp.allclose(
-        jnp.sqrt(normalizer.batch_norm.var[...]), true_std, atol=0.1
-    )
+    normalizer = Normalizer.from_dataloader(batches)
+
+    assert jnp.allclose(normalizer.mean, true_mean, atol=0.2)
+    assert jnp.allclose(normalizer.std, true_std, atol=0.2)
 
 
-def test_stats_not_updated_in_eval_mode():
-    """Running stats are frozen when the normalizer is in eval mode."""
-    data_size = 3
-    normalizer = Normalizer(data_size=data_size, rngs=nnx.Rngs(0))
+def test_normalize_and_unnormalize_are_inverse():
+    """unnormalize(normalize(x)) ≈ x."""
+    true_mean = jnp.array([3.0, -2.0])
+    true_std = jnp.array([1.5, 0.5])
 
-    # Warm up with a few batches so stats are non-trivial
-    key = jax.random.key(1)
-    for _ in range(50):
-        key, subkey = jax.random.split(key)
-        normalizer(jax.random.normal(subkey, (64, data_size)))
+    key = jax.random.key(2)
+    batches = _make_batches(key, (64, 2), true_mean, true_std, num_batches=100)
 
-    mean_before = normalizer.batch_norm.mean[...]
-    var_before = normalizer.batch_norm.var[...]
+    normalizer = Normalizer.from_dataloader(batches)
 
-    # Feed very different data in eval mode
-    normalizer.eval()
-    for _ in range(50):
-        key, subkey = jax.random.split(key)
-        normalizer(jax.random.normal(subkey, (64, data_size)) * 100.0 + 50.0)
-
-    assert jnp.array_equal(normalizer.batch_norm.mean[...], mean_before)
-    assert jnp.array_equal(normalizer.batch_norm.var[...], var_before)
+    x = batches[0]
+    x_reconstructed = normalizer.unnormalize(normalizer(x))
+    assert jnp.allclose(x_reconstructed, x, atol=1e-5)
 
 
-def test_no_learnable_parameters():
-    """Normalizer has no learnable (Param) variables."""
-    normalizer = Normalizer(data_size=4, rngs=nnx.Rngs(0))
-    params = nnx.state(normalizer, nnx.Param)
-    assert len(nnx.to_flat_state(params)) == 0
+def test_normalized_data_has_zero_mean_unit_var():
+    """Normalized training data has approximately zero mean, unit variance."""
+    true_mean = jnp.array([10.0, -5.0, 3.0])
+    true_std = jnp.array([2.0, 0.5, 4.0])
+
+    key = jax.random.key(3)
+    batches = _make_batches(key, (64, 3), true_mean, true_std, num_batches=200)
+
+    normalizer = Normalizer.from_dataloader(batches)
+
+    all_data = jnp.concatenate(batches, axis=0)
+    normalized = normalizer(all_data)
+    assert jnp.allclose(jnp.mean(normalized, axis=0), 0.0, atol=0.1)
+    assert jnp.allclose(jnp.std(normalized, axis=0), 1.0, atol=0.1)

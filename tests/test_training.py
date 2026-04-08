@@ -6,6 +6,7 @@ from flax import nnx
 import optax
 
 from training import loss_fn, train_step, train
+from architectures.normalizer import Normalizer
 import pytest
 
 
@@ -116,8 +117,8 @@ def test_full_training():
     )
     assert any_changed, "Model parameters were not updated after training"
 
-    # Normalizer should be in eval mode (parameters frozen) after training
-    assert isinstance(normalizer, nnx.Module)
+    # Normalizer should have valid stats after training
+    assert isinstance(normalizer, Normalizer)
 
     # Normalizer stats should roughly match the data
     raw_data = jnp.array(dataset.data)
