@@ -2,6 +2,7 @@ import jax.numpy as jnp
 from flax import nnx
 
 from architectures.flow import FlowMLP, SinusoidalPosEmb
+from architectures.unet import FlowUNet
 
 
 # ---------------------------------------------------------------------------
@@ -124,3 +125,95 @@ def test_flowmlp_image_shape():
     t = jnp.linspace(0, 1, 8)
     y = model(x, t)
     assert y.shape == x.shape
+
+
+# ---------------------------------------------------------------------------
+# FlowUNet
+# ---------------------------------------------------------------------------
+
+
+def test_flowunet_output_shape():
+    """Output shape matches (batch, H, W, C) for single-channel images."""
+    model = FlowUNet(
+        data_shape=(16, 16, 1),
+        time_embedding_size=16,
+        channels=(16, 32),
+        rngs=nnx.Rngs(0),
+    )
+    x = jnp.ones((4, 16, 16, 1))
+    t = jnp.linspace(0, 1, 4)
+    y = model(x, t)
+    assert y.shape == (4, 16, 16, 1)
+
+
+def test_flowunet_multichannel():
+    """Works for images with multiple channels."""
+    model = FlowUNet(
+        data_shape=(8, 8, 3),
+        time_embedding_size=16,
+        channels=(16, 32),
+        rngs=nnx.Rngs(0),
+    )
+    x = jnp.ones((4, 8, 8, 3))
+    t = jnp.linspace(0, 1, 4)
+    y = model(x, t)
+    assert y.shape == (4, 8, 8, 3)
+
+
+def test_flowunet_output_is_finite():
+    """Forward pass produces finite values."""
+    model = FlowUNet(
+        data_shape=(8, 8, 1),
+        time_embedding_size=16,
+        channels=(16, 32),
+        rngs=nnx.Rngs(0),
+    )
+    x = jnp.ones((4, 8, 8, 1))
+    t = jnp.linspace(0, 1, 4)
+    y = model(x, t)
+    assert jnp.all(jnp.isfinite(y))
+
+
+def test_flowunet_sensitive_to_time():
+    """Different time inputs produce different outputs."""
+    model = FlowUNet(
+        data_shape=(8, 8, 1),
+        time_embedding_size=16,
+        channels=(16, 32),
+        rngs=nnx.Rngs(0),
+    )
+    x = jnp.ones((1, 8, 8, 1))
+    y0 = model(x, jnp.array([0.0]))
+    y1 = model(x, jnp.array([1.0]))
+    assert not jnp.allclose(y0, y1)
+
+
+def test_flowunet_sensitive_to_input():
+    """Different x inputs produce different outputs."""
+    model = FlowUNet(
+        data_shape=(8, 8, 1),
+        time_embedding_size=16,
+        channels=(16, 32),
+        rngs=nnx.Rngs(0),
+    )
+    t = jnp.array([0.5])
+    x0 = jnp.zeros((1, 8, 8, 1))
+    x1 = jnp.ones((1, 8, 8, 1))
+    y0 = model(x0, t)
+    y1 = model(x1, t)
+    assert not jnp.allclose(y0, y1)
+
+
+def test_flowunet_deeper_network():
+    """Works with more resolution levels."""
+    model = FlowUNet(
+        data_shape=(16, 16, 1),
+        time_embedding_size=16,
+        channels=(8, 16, 32),
+        rngs=nnx.Rngs(0),
+    )
+    x = jnp.ones((2, 16, 16, 1))
+    t = jnp.linspace(0, 1, 2)
+    y = model(x, t)
+    assert y.shape == x.shape
+    assert jnp.all(jnp.isfinite(y))

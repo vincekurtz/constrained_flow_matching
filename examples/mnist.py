@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from flax import nnx
 
 from architectures.flow import FlowMLP
+from architectures.unet import FlowUNet
 from datasets.mnist import MNISTDataset
 from examples.example_base import FlowExample
 
@@ -14,10 +15,10 @@ parser = FlowExample.build_arg_parser("data/mnist_model.pkl")
 args = parser.parse_args()
 
 # Define the architecture of the flow model we'll train.
-model = FlowMLP(
+model = FlowUNet(
     data_shape=(28, 28, 1),
-    time_embedding_size=32,
-    hidden_sizes=(512, 512, 512, 512),
+    time_embedding_size=16,
+    channels=(16, 32, 64),
     rngs=nnx.Rngs(0),
 )
 
