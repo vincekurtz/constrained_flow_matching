@@ -13,13 +13,14 @@ class MNISTDataset(Dataset):
     scaled to ``[0, 1]``.
     """
 
-    def __init__(self, train: bool = True, root: str = "data"):
+    def __init__(self, train: bool = True, root: str = "data", digit="all"):
         """Download (if necessary) and load the MNIST split.
 
         Args:
             train: If ``True`` load the training split (60 000 images),
                 otherwise load the test split (10 000 images).
             root: Directory under which the raw dataset is cached.
+            digit: The digit to load, or "all" for all digits 0-9.
         """
         super().__init__()
         transform = transforms.Compose(
@@ -33,7 +34,9 @@ class MNISTDataset(Dataset):
         )
         # Stack all images into a single tensor of shape (N, 1, 28, 28),
         # then permute to (N, 28, 28, 1) to match the (H, W, C) convention.
-        images = torch.stack([img for img, _ in raw])  # (N, 1, 28, 28)
+        images = torch.stack(
+            [img for img, d in raw if digit == "all" or d == int(digit)]
+        )
         self.data = images.permute(0, 2, 3, 1)  # (N, 28, 28, 1)
 
     def __len__(self) -> int:

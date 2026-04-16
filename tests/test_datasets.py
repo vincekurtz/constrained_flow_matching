@@ -95,6 +95,13 @@ def mnist_test():
     return MNISTDataset(train=False)
 
 
+def test_mnist_chosen_digit():
+    dataset = MNISTDataset(train=True, digit="3")
+    assert len(dataset) > 0
+    assert len(dataset) < 60000
+    assert dataset[0].shape == (28, 28, 1)
+
+
 def test_mnist_train_len(mnist_train):
     """Training split has 60 000 samples."""
     assert len(mnist_train) == 60000
