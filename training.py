@@ -115,7 +115,7 @@ def train(
         "Batch size {batch.shape[0]} does not match expected {batch_size}"
     )
 
-    optimizer = nnx.Optimizer(model, optax.adam(learning_rate), wrt=nnx.Param)
+    optimizer = nnx.Optimizer(model, optax.adamw(learning_rate), wrt=nnx.Param)
     rng = jax.random.key(seed)
 
     # Compute normalizer stats from the full dataset before training

@@ -17,15 +17,15 @@ args = parser.parse_args()
 model = FlowUNet(
     data_shape=(28, 28, 1),
     time_embedding_size=128,
-    channels=(32, 64, 128),
+    channels=(64, 128, 256),
     rngs=nnx.Rngs(0),
 )
 
 # Define training hyperparameters
 hyperparams = {
-    "num_epochs": 50,
-    "batch_size": 256,
-    "learning_rate": 3e-4,
+    "num_epochs": 100,
+    "batch_size": 128,
+    "learning_rate": 1e-4,
     "seed": 0,
     "print_frequency": 1,
 }
