@@ -8,19 +8,24 @@ from typing import Tuple
 from architectures.mlp import MLP
 
 class SinusoidalPosEmb(nnx.Module):
-    """A basic positional embedding."""
+    """A basic positional embedding for timesteps t in [0, 1].
+
+    Composes sine and cosine waves at frequencies spaced logarithmically between
+    1 and 1000 Hz.
+    """
 
     def __init__(self, dim: int):
         """Create a position embedding of the given dimension."""
         assert dim > 2, "Positional embedding dimension must be greater than 2"
         assert dim % 2 == 0, "Positional embedding dimension must be even"
-        self.half_dim = dim // 2
+        max_frequency = 1000
+        half_dim = dim // 2
+        exponent = jnp.arange(half_dim) / (half_dim - 1)
+        self.freqs = jnp.power(max_frequency, exponent)
 
     def __call__(self, x: jax.Array) -> jax.Array:
         """Apply the positional embedding to the input x."""
-        emb = jnp.log(10000) / (self.half_dim - 1)
-        emb = jnp.exp(jnp.arange(self.half_dim) * -emb)
-        emb = x[:, None] * emb[None, :]
+        emb = 2 * jnp.pi * x[:, None] * self.freqs[None, :]
         emb = jnp.concatenate((jnp.sin(emb), jnp.cos(emb)), axis=-1)
         return emb
 
