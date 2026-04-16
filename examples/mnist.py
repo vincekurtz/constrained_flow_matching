@@ -16,8 +16,8 @@ args = parser.parse_args()
 # Define the architecture of the flow model we'll train.
 model = FlowUNet(
     data_shape=(28, 28, 1),
-    time_embedding_size=32,
-    channels=(16, 32, 64),
+    time_embedding_size=128,
+    channels=(32, 64, 128),
     rngs=nnx.Rngs(0),
 )
 
