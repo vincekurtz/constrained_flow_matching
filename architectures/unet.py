@@ -33,25 +33,36 @@ class ResBlock(nnx.Module):
         self.time_proj = nnx.Linear(time_dim, 2 * out_channels, rngs=rngs)
 
         self.norm1 = nnx.GroupNorm(
-            in_channels, num_groups=_num_groups(in_channels), rngs=rngs,
+            in_channels,
+            num_groups=_num_groups(in_channels),
+            rngs=rngs,
         )
         self.conv1 = nnx.Conv(
-            in_channels, out_channels,
-            kernel_size=(3, 3), padding="SAME", rngs=rngs,
+            in_channels,
+            out_channels,
+            kernel_size=(3, 3),
+            padding="SAME",
+            rngs=rngs,
         )
         self.norm2 = nnx.GroupNorm(
-            out_channels, num_groups=_num_groups(out_channels), rngs=rngs,
+            out_channels,
+            num_groups=_num_groups(out_channels),
+            rngs=rngs,
         )
         self.conv2 = nnx.Conv(
-            out_channels, out_channels,
-            kernel_size=(3, 3), padding="SAME", rngs=rngs,
+            out_channels,
+            out_channels,
+            kernel_size=(3, 3),
+            padding="SAME",
+            rngs=rngs,
         )
         self.skip = (
             nnx.Conv(in_channels, out_channels, kernel_size=(1, 1), rngs=rngs)
-            if in_channels != out_channels else lambda x: x
+            if in_channels != out_channels
+            else lambda x: x
         )
 
-        self.act = nnx.silu
+        self.act = nnx.swish
 
     def __call__(self, x: jax.Array, t_emb: jax.Array) -> jax.Array:
         """Forward pass through the residual block."""
@@ -102,17 +113,21 @@ class FlowUNet(nnx.Module):
         in_channels = data_shape[-1]
 
         # Time embedding
-        self.time_embedding = SinusoidalPosEmb(time_embedding_size)
         time_dim = time_embedding_size * 4
-        self.time_dense1 = nnx.Linear(
-            time_embedding_size, time_dim, rngs=rngs
+        self.time_embedding = nnx.Sequential(
+            SinusoidalPosEmb(time_embedding_size),
+            nnx.Linear(time_embedding_size, time_dim, rngs=rngs),
+            nnx.swish,
+            nnx.Linear(time_dim, time_dim, rngs=rngs),
         )
-        self.time_dense2 = nnx.Linear(time_dim, time_dim, rngs=rngs)
 
         # Input projection
         self.input_conv = nnx.Conv(
-            in_channels, channels[0],
-            kernel_size=(3, 3), padding="SAME", rngs=rngs,
+            in_channels,
+            channels[0],
+            kernel_size=(3, 3),
+            padding="SAME",
+            rngs=rngs,
         )
 
         # Encoder: each level has a ResBlock followed by stride-2 downsample
@@ -120,14 +135,15 @@ class FlowUNet(nnx.Module):
         self.downsamples = nnx.List()
         ch = channels[0]
         for ch_next in channels[1:]:
-            self.down_blocks.append(
-                ResBlock(ch, ch_next, time_dim, rngs=rngs)
-            )
+            self.down_blocks.append(ResBlock(ch, ch_next, time_dim, rngs=rngs))
             self.downsamples.append(
                 nnx.Conv(
-                    ch_next, ch_next,
-                    kernel_size=(3, 3), strides=(2, 2),
-                    padding="SAME", rngs=rngs,
+                    ch_next,
+                    ch_next,
+                    kernel_size=(3, 3),
+                    strides=(2, 2),
+                    padding="SAME",
+                    rngs=rngs,
                 )
             )
             ch = ch_next
@@ -140,9 +156,13 @@ class FlowUNet(nnx.Module):
         self.up_blocks = nnx.List()
         for ch_skip in reversed(channels[:-1]):
             self.upsamples.append(
-                nnx.Conv(
-                    ch, ch,
-                    kernel_size=(3, 3), padding="SAME", rngs=rngs,
+                nnx.ConvTranspose(
+                    ch,
+                    ch,
+                    kernel_size=(3, 3),
+                    strides=(2, 2),
+                    padding="SAME",
+                    rngs=rngs,
                 )
             )
             self.up_blocks.append(
@@ -152,10 +172,15 @@ class FlowUNet(nnx.Module):
 
         # Output projection
         self.output_norm = nnx.GroupNorm(
-            channels[0], num_groups=_num_groups(channels[0]), rngs=rngs,
+            channels[0],
+            num_groups=_num_groups(channels[0]),
+            rngs=rngs,
         )
         self.output_conv = nnx.Conv(
-            channels[0], in_channels, kernel_size=(1, 1), rngs=rngs,
+            channels[0],
+            in_channels,
+            kernel_size=(1, 1),
+            rngs=rngs,
         )
 
     def __call__(self, x: jax.Array, t: jax.Array) -> jax.Array:
@@ -168,9 +193,8 @@ class FlowUNet(nnx.Module):
         Returns:
             Predicted velocity, same shape as ``x``.
         """
-        # Time conditioning
-        t_emb = nnx.swish(self.time_dense1(self.time_embedding(t)))
-        t_emb = self.time_dense2(t_emb)
+        # Time conditioning, positional embedding and MLP
+        t_emb = self.time_embedding(t)
 
         h = self.input_conv(x)
 
@@ -187,11 +211,6 @@ class FlowUNet(nnx.Module):
         for up_conv, block, skip in zip(
             self.upsamples, self.up_blocks, reversed(skips)
         ):
-            h = jax.image.resize(
-                h,
-                (h.shape[0], skip.shape[1], skip.shape[2], h.shape[3]),
-                method="nearest",
-            )
             h = up_conv(h)
             h = jnp.concatenate([h, skip], axis=-1)
             h = block(h, t_emb)
