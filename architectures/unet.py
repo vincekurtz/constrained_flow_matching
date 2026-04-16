@@ -16,7 +16,11 @@ def _num_groups(channels: int) -> int:
 
 
 class ResBlock(nnx.Module):
-    """Residual convolution block with time conditioning."""
+    """Residual convolution block with time conditioning.
+
+    Uses adaptive group normalization (AdaGN, https://arxiv.org/pdf/2105.05233)
+    to modulate convolution features based on the time embedding.
+    """
 
     def __init__(
         self,
@@ -26,6 +30,8 @@ class ResBlock(nnx.Module):
         *,
         rngs: nnx.Rngs,
     ):
+        self.time_proj = nnx.Linear(time_dim, 2 * out_channels, rngs=rngs)
+
         self.norm1 = nnx.GroupNorm(
             in_channels, num_groups=_num_groups(in_channels), rngs=rngs,
         )
@@ -40,21 +46,28 @@ class ResBlock(nnx.Module):
             out_channels, out_channels,
             kernel_size=(3, 3), padding="SAME", rngs=rngs,
         )
-        self.time_proj = nnx.Linear(time_dim, out_channels, rngs=rngs)
         self.skip = (
             nnx.Conv(in_channels, out_channels, kernel_size=(1, 1), rngs=rngs)
-            if in_channels != out_channels
-            else None
+            if in_channels != out_channels else lambda x: x
         )
 
+        self.act = nnx.silu
+
     def __call__(self, x: jax.Array, t_emb: jax.Array) -> jax.Array:
-        h = nnx.swish(self.norm1(x))
-        h = self.conv1(h)
-        h = h + self.time_proj(nnx.swish(t_emb))[:, None, None, :]
-        h = nnx.swish(self.norm2(h))
-        h = self.conv2(h)
-        residual = self.skip(x) if self.skip is not None else x
-        return residual + h
+        """Forward pass through the residual block."""
+        # First convolution down to out_channels
+        h = self.conv1(self.act(self.norm1(x)))
+
+        # AdaGN conditioning: get a scale and bias from the time embedding,
+        # then apply to the normalized features.
+        t_proj = self.time_proj(self.act(t_emb))[:, None, None, :]
+        gamma, beta = jnp.split(t_proj, 2, axis=-1)
+        h = self.norm2(h) * (1 + gamma) + beta
+
+        # Second convolution at out_channels
+        h = self.conv2(self.act(h))
+
+        return self.skip(x) + h
 
 
 class FlowUNet(nnx.Module):

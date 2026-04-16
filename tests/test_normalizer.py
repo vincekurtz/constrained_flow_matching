@@ -34,7 +34,9 @@ def test_stats_track_image_data():
     true_std = jnp.ones((4, 4, 3)) * 2.0
 
     key = jax.random.key(0)
-    batches = _make_batches(key, (32, 4, 4, 3), true_mean, true_std, num_batches=100)
+    batches = _make_batches(
+        key, (32, 4, 4, 3), true_mean, true_std, num_batches=100
+    )
 
     normalizer = Normalizer.from_dataloader(batches)
 

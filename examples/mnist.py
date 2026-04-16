@@ -5,7 +5,6 @@ import jax.numpy as jnp
 import matplotlib.pyplot as plt
 from flax import nnx
 
-from architectures.flow import FlowMLP
 from architectures.unet import FlowUNet
 from datasets.mnist import MNISTDataset
 from examples.example_base import FlowExample
@@ -18,14 +17,14 @@ args = parser.parse_args()
 model = FlowUNet(
     data_shape=(28, 28, 1),
     time_embedding_size=32,
-    channels=(16, 32, 64, 128),
+    channels=(16, 32, 64),
     rngs=nnx.Rngs(0),
 )
 
 # Define training hyperparameters
 hyperparams = {
-    "num_epochs": 10,
-    "batch_size": 16,
+    "num_epochs": 50,
+    "batch_size": 256,
     "learning_rate": 3e-4,
     "seed": 0,
     "print_frequency": 1,
