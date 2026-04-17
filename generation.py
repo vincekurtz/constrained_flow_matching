@@ -45,6 +45,7 @@ def generate(
 
     return normalizer.unnormalize(x), normalizer.unnormalize(xs)
 
+
 def generate_constrained(
     model: nnx.Module,
     normalizer: Normalizer,
@@ -84,8 +85,6 @@ def generate_constrained(
         xs: Trajectories of shape ``(num_steps, num_samples, *data_shape)``.
     """
     rng = jax.random.key(seed)
-
-    # TODO(vincekurtz): consider passing this as a separate argument.
     data_shape = model.data_shape
 
     def _g(x):
@@ -94,11 +93,21 @@ def generate_constrained(
         x = normalizer.unnormalize(x)
         return jnp.atleast_1d(penalty_weight * constraint_fn(x))
 
-    def _step_single(x_i, v_i, lmbda_i, t):
-        """Per-sample step: compute g/J once, update lambda and project v."""
-        data_shape = x_i.shape
-        x_flat = x_i.ravel()
-        v_flat = v_i.ravel()
+    def _step_single(x, v, lmbda, t):
+        """Perform an integration step for a single sample.
+
+        Args:
+            x: Current state (generated sample).
+            v: Unconstrained vector field v(x, t).
+            lmbda: Current Lagrange multiplier.
+            t: Current time.
+
+        Returns:
+            State after the integration step.
+            Lagrange multiplier after the integration step.
+        """
+        x_flat = x.ravel()
+        v_flat = v.ravel()
 
         g = _g(x_flat)
         J = jnp.atleast_2d(jax.jacobian(_g)(x_flat))
@@ -107,7 +116,7 @@ def generate_constrained(
             # Flow the Lagrange multiplier (Platt & Barr 1987), but use
             # rescaled time s = -ρ log(1 - t) to reach s = ∞ at t = 1.
             dt_lmbda = rescale_factor * dt / (1 - t + 1e-8)
-            lmbda = lmbda_i + dt_lmbda * g
+            lmbda = lmbda + dt_lmbda * g
         elif method == "pseudoinverse":
             # Analytical solution via Jacobian pseudoinverse.
             JJT = J @ J.T + 1e-6 * jnp.eye(g.shape[0])
@@ -120,9 +129,9 @@ def generate_constrained(
         # Constrained flow: ẋ = v(x, t) − Jᵀλ − ∇‖g(x)‖²/2
         x_dot = v_flat - J.T @ lmbda - J.T @ g
 
-        # Forward-Euler integration step.
-        x_next = x_i + dt * x_dot.reshape(data_shape)
-        return x_next, lmbda
+        # Forward euler integration step.
+        x = x + dt * x_dot.reshape(data_shape)
+        return x, lmbda
 
     def _step_fn(carry, t):
         """Batched forward Euler step with constraint projection."""
@@ -132,19 +141,23 @@ def generate_constrained(
         t_batch = jnp.full((x.shape[0],), t)
         v = model(x, t_batch)
 
-        # Per-sample constraint correction (vmapped).
-        x_next, lmbda_next = jax.vmap(
-            _step_single, in_axes=(0, 0, 0, None)
-        )(x, v, lmbda, t)
+        # Integrate the state and langrange multiplier for each sample in the
+        # batch, following a constrained/corrected ODE.
+        x_next, lmbda_next = jax.vmap(_step_single, in_axes=(0, 0, 0, None))(
+            x, v, lmbda, t
+        )
 
         return (x_next, lmbda_next), x_next
 
-    x_init = jax.random.normal(rng, (num_samples,) + model.data_shape)
+    # Data samples are initialized as Gaussian noise.
+    x_init = jax.random.normal(rng, (num_samples,) + data_shape)
 
     # Initialise multipliers as zeros of the correct shape
     lmbda_init = 0.0 * jax.vmap(lambda xi: _g(xi.ravel()))(x_init)
 
+    # Integrate the constrained flow ODE from t=0 to t=1.
     timesteps = jnp.arange(0, 1.0, dt)
-    (x, lmbda), xs = jax.lax.scan(_step_fn, (x_init, lmbda_init), timesteps)
+    (x, _), xs = jax.lax.scan(_step_fn, (x_init, lmbda_init), timesteps)
 
+    # All trajectories are in normalized space, so unnormalize before returning.
     return normalizer.unnormalize(x), normalizer.unnormalize(xs)

@@ -137,6 +137,7 @@ def test_constrained_output_shapes(model_2d, identity_normalizer):
         num_samples=num_samples,
         dt=dt,
         penalty_weight=1.0,
+        rescale_factor=1.0,
     )
     num_steps = int(1.0 / dt)
     assert x.shape == (num_samples, 2)
@@ -152,6 +153,7 @@ def test_constrained_output_is_finite(model_2d, identity_normalizer):
         num_samples=20,
         dt=0.05,
         penalty_weight=1.0,
+        rescale_factor=1.0,
     )
     assert jnp.all(jnp.isfinite(x))
     assert jnp.all(jnp.isfinite(xs))
@@ -166,6 +168,7 @@ def test_constrained_deterministic(model_2d, identity_normalizer):
         dt=0.1,
         seed=7,
         penalty_weight=1.0,
+        rescale_factor=1.0,
     )
     x1, _ = generate_constrained(model_2d, **kwargs)
     x2, _ = generate_constrained(model_2d, **kwargs)
@@ -181,6 +184,7 @@ def test_constrained_trajectory_endpoint(model_2d, identity_normalizer):
         num_samples=10,
         dt=0.1,
         penalty_weight=1.0,
+        rescale_factor=1.0,
     )
     assert jnp.array_equal(x, xs[-1])
 
@@ -199,6 +203,7 @@ def test_constrained_vector_constraint(model_2d, identity_normalizer):
         num_samples=10,
         dt=0.1,
         penalty_weight=1.0,
+        rescale_factor=1.0,
     )
     assert x.shape == (10, 2)
     assert jnp.all(jnp.isfinite(x))
