@@ -7,7 +7,7 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import training
-from generation import generate
+from generation import generate, generate_constrained
 
 
 class FlowExample:
@@ -92,7 +92,16 @@ class FlowExample:
         normalizer = data["normalizer"]
 
         print("Generating samples...")
-        return generate(model, normalizer, num_samples=num_samples, dt=dt)
+
+        # Test unit circle constriants:
+        def constraint_fn(x):
+            return jnp.sum(x**2, axis=-1) - 1.0
+
+        return generate_constrained(
+            model, normalizer, constraint_fn, num_samples=num_samples, dt=dt
+        )
+
+        # return generate(model, normalizer, num_samples=num_samples, dt=dt)
 
     def plot(self, x: jax.Array, xs: jax.Array):
         """Plot generated samples. Override for non-2D data.
