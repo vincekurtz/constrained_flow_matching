@@ -10,11 +10,7 @@ from flax import nnx
 
 from architectures.unet import FlowUNet
 from datasets.mnist import MNISTDataset
-from generation import (
-    generate,
-    generate_constrained,
-    generate_constrained_inverse_free,
-)
+from generation import generate, generate_constrained
 import training
 
 parser = argparse.ArgumentParser()
@@ -94,20 +90,13 @@ if args.generate_constrained:
 
     print("Generating constrained (inpainted) samples...")
     num_samples = 25
-    # x, xs = generate_constrained(
-    #     model,
-    #     normalizer,
-    #     inpainting_constraint,
-    #     num_samples=num_samples,
-    #     dt=0.01,
-    #     penalty_weight=20.0,
-    # )
-    x, xs = generate_constrained_inverse_free(
+    x, xs = generate_constrained(
         model,
         normalizer,
         inpainting_constraint,
+        method="flow",
         num_samples=num_samples,
-        dt=0.001,
+        dt=0.01,
         penalty_weight=10.0,
         rescale_factor=10.0,
     )

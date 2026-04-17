@@ -8,7 +8,7 @@ import jax.numpy as jnp
 from architectures.flow import FlowMLP
 from datasets.star import StarDataset
 from examples.common import plot_2d
-from generation import generate, generate_constrained_inverse_free, generate_constrained
+from generation import generate, generate_constrained
 import training
 
 parser = argparse.ArgumentParser()
@@ -65,10 +65,11 @@ if args.generate_constrained:
         return jnp.sum(x**2, axis=-1) - 1.0
 
     print("Generating samples with unit circle constraint...")
-    x, xs = generate_constrained_inverse_free(
+    x, xs = generate_constrained(
         model,
         normalizer,
         unit_circle_constraint,
+        method="flow",
         num_samples=1000,
         dt=0.01,
         penalty_weight=10.0,
