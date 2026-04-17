@@ -21,15 +21,15 @@ parser.add_argument("--save-path", type=str, default="data/mnist_model.pkl")
 args = parser.parse_args()
 
 save_path = Path(args.save_path)
-dataset = MNISTDataset(train=True)
-model = FlowUNet(
-    data_shape=(28, 28, 1),
-    time_embedding_size=128,
-    channels=(64, 128, 256),
-    rngs=nnx.Rngs(0),
-)
 
 if args.train:
+    dataset = MNISTDataset(train=True)
+    model = FlowUNet(
+        data_shape=(28, 28, 1),
+        time_embedding_size=128,
+        channels=(64, 128, 256),
+        rngs=nnx.Rngs(0),
+    )
     model, normalizer = training.train(
         dataset=dataset,
         model=model,
@@ -71,7 +71,8 @@ if args.generate_constrained:
     model = data["model"]
     normalizer = data["normalizer"]
 
-    # Pick a reference image from the dataset to use as the inpainting target.
+    # Pick a reference image from the test set as the inpainting target.
+    dataset = MNISTDataset(train=False, digit=5)
     reference = jnp.array(dataset[0])  # (28, 28, 1)
 
     # Fix the top half of the image (rows 0-13).
@@ -95,12 +96,13 @@ if args.generate_constrained:
         inpainting_constraint,
         num_samples=num_samples,
         dt=0.01,
+        penalty_weight=20.0,
     )
 
     # Report constraint violation.
-    violations = jax.vmap(inpainting_constraint)(x)
-    print(f"Constraint violation: mean={float(jnp.mean(jnp.abs(violations))):.6f}, "
-          f"max={float(jnp.max(jnp.abs(violations))):.6f}")
+    violations = jnp.abs(jax.vmap(inpainting_constraint)(x))
+    print(f"Constraint violation: mean={float(jnp.mean(violations)):.6f}, "
+          f"max={float(jnp.max(violations)):.6f}")
 
     x = jnp.clip(x, 0.0, 1.0)
     n = math.isqrt(num_samples)
