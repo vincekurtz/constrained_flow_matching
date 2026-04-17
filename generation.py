@@ -171,7 +171,7 @@ def generate_constrained_inverse_free(
 
     def _g(x_i):
         """Constraint on a single normalized sample (any shape)."""
-        return constraint_fn(normalizer.unnormalize(x_i))
+        return penalty_weight * constraint_fn(normalizer.unnormalize(x_i))
 
     def _g_flat(x_flat, data_shape):
         """Constraint on a flattened normalized sample."""
@@ -189,15 +189,22 @@ def generate_constrained_inverse_free(
 
         # Flow the Lagrange multiplier (Platt & Barr 1987).
         dt_lmbda = rescale_factor * dt / (1 - t + 1e-8)
-        lmbda_next = lmbda_i + dt_lmbda * g
+        lmbda = lmbda_i + dt_lmbda * g
 
-        # Project velocity: remove constraint-normal component and add
-        # penalty pulling toward the manifold.
-        correction = lmbda_next.T @ J + penalty_weight * g.T @ J
-        v_proj = (v_flat - correction).reshape(data_shape)
+        # DEBUG: use analytical multiplier
+        # JJT = J @ J.T + 1e-6 * jnp.eye(g.shape[0])
+        # lmbda = jnp.linalg.solve(JJT, J @ v_flat)
 
-        x_next = x_i + dt * v_proj
-        return x_next, lmbda_next
+        # Project: remove component along constraint gradient via analytical
+        # Lagrange multiplier.
+        v_proj = v_flat - J.T @ lmbda
+
+        # Penalty: pull toward the constraint manifold via a quadratic penalty
+        # on ||g(x)||^2.
+        v_proj = v_proj - J.T @ g
+
+        x_next = x_i + dt * v_proj.reshape(data_shape)
+        return x_next, lmbda
 
     def _step_fn(carry, t):
         """Batched forward Euler step with constraint projection."""
@@ -218,7 +225,7 @@ def generate_constrained_inverse_free(
 
     # Initialise multipliers from the constraint value at the starting noise.
     lmbda_init = jax.vmap(lambda xi: jnp.atleast_1d(_g(xi)))(x_init)
-    lmbda_init = penalty_weight * lmbda_init
+    lmbda_init = 0.0*penalty_weight * lmbda_init
 
     timesteps = jnp.arange(0, 1.0, dt)
     (x, lmbda), xs = jax.lax.scan(_step_fn, (x_init, lmbda_init), timesteps)

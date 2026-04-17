@@ -8,7 +8,7 @@ import jax.numpy as jnp
 from architectures.flow import FlowMLP
 from datasets.star import StarDataset
 from examples.common import plot_2d
-from generation import generate, generate_constrained_inverse_free
+from generation import generate, generate_constrained_inverse_free, generate_constrained
 import training
 
 parser = argparse.ArgumentParser()
@@ -72,7 +72,7 @@ if args.generate_constrained:
         num_samples=1000,
         dt=0.01,
         penalty_weight=10.0,
-        rescale_factor=100.0,
+        rescale_factor=10.0,
     )
 
     # Report constraint violation statistics.
