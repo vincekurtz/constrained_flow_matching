@@ -89,20 +89,27 @@ def generate_constrained(
 
     def _constrain_velocity(x_i, v_i):
         """Project one sample's velocity onto the constraint tangent space."""
-        g = jnp.atleast_1d(_g(x_i))
-        J = jnp.atleast_2d(jax.jacobian(_g)(x_i))
+        data_shape = x_i.shape
+        x_flat = x_i.ravel()
+        v_flat = v_i.ravel()
+
+        def _g_flat(xf):
+            return _g(xf.reshape(data_shape))
+
+        g = jnp.atleast_1d(_g_flat(x_flat))
+        J = jnp.atleast_2d(jax.jacobian(_g_flat)(x_flat))
 
         # Project: remove component along constraint gradient via analytical
         # Lagrange multiplier.
         JJT = J @ J.T + 1e-6 * jnp.eye(g.shape[0])
-        lmbda = jnp.linalg.solve(JJT, J @ v_i)
-        v_proj = v_i - J.T @ lmbda
+        lmbda = jnp.linalg.solve(JJT, J @ v_flat)
+        v_proj = v_flat - J.T @ lmbda
 
         # Penalty: pull toward the constraint manifold via a quadratic penalty
         # on ||g(x)||^2.
         v_proj = v_proj - J.T @ g
 
-        return v_proj
+        return v_proj.reshape(data_shape)
 
     def _step_fn(x, t):
         """Single forward Euler step with constraint projection."""
