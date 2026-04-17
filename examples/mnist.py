@@ -6,6 +6,7 @@ import cloudpickle
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
+import time
 from flax import nnx
 
 from architectures.unet import FlowUNet
@@ -90,6 +91,7 @@ if args.generate_constrained:
 
     print("Generating constrained (inpainted) samples...")
     num_samples = 25
+    start_time = time.time()
     x, xs = generate_constrained(
         model,
         normalizer,
@@ -100,6 +102,8 @@ if args.generate_constrained:
         penalty_weight=10.0,
         rescale_factor=10.0,
     )
+    gen_time = time.time() - start_time
+    print(f"Generated {num_samples} samples in {gen_time:.2f} seconds")
 
     # Report constraint violation.
     violations = jnp.abs(jax.vmap(inpainting_constraint)(x))
