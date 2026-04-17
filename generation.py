@@ -45,6 +45,7 @@ def generate(
 
     return normalizer.unnormalize(x), normalizer.unnormalize(xs)
 
+
 def generate_constrained(
     model: nnx.Module,
     normalizer: Normalizer,
@@ -52,7 +53,7 @@ def generate_constrained(
     num_samples: int = 1000,
     dt: float = 0.01,
     seed: int = 0,
-    penalty_weight: float = 10.0,
+    penalty_weight: float = 5.0,
 ) -> Tuple[jax.Array, jax.Array]:
     """Generate samples from a trained flow model subject to g(x) = 0.
 
@@ -92,7 +93,7 @@ def generate_constrained(
         J = jnp.atleast_2d(jax.jacobian(_g)(x_i))
 
         # Project: remove component along constraint gradient via analytical
-        # Lagrange multiplier. 
+        # Lagrange multiplier.
         JJT = J @ J.T + 1e-6 * jnp.eye(g.shape[0])
         lmbda = jnp.linalg.solve(JJT, J @ v_i)
         v_proj = v_i - J.T @ lmbda

@@ -74,12 +74,21 @@ class FlowExample:
         with open(self.save_path, "wb") as f:
             cloudpickle.dump({"model": model, "normalizer": normalizer}, f)
 
-    def generate(self, num_samples: int = 1000, dt: float = 0.01) -> jax.Array:
+    def generate(
+        self,
+        num_samples: int = 1000,
+        dt: float = 0.01,
+        constraint_fn=None,
+    ) -> jax.Array:
         """Load the saved model and generate samples.
 
         Args:
             num_samples: Number of samples to generate.
             dt: Step size for the forward Euler integrator.
+            constraint_fn: Optional differentiable function ``g(x)`` (on a
+                single unnormalized sample) defining a constraint manifold
+                ``g(x) = 0``.  If ``None``, samples are generated without
+                any constraint.
 
         Returns:
             Generated samples of shape (num_samples, *data_shape).
@@ -92,16 +101,11 @@ class FlowExample:
         normalizer = data["normalizer"]
 
         print("Generating samples...")
-
-        # Test unit circle constriants:
-        def constraint_fn(x):
-            return jnp.sum(x**2, axis=-1) - 1.0
-
-        return generate_constrained(
-            model, normalizer, constraint_fn, num_samples=num_samples, dt=dt
-        )
-
-        # return generate(model, normalizer, num_samples=num_samples, dt=dt)
+        if constraint_fn is not None:
+            return generate_constrained(
+                model, normalizer, constraint_fn, num_samples=num_samples, dt=dt
+            )
+        return generate(model, normalizer, num_samples=num_samples, dt=dt)
 
     def plot(self, x: jax.Array, xs: jax.Array):
         """Plot generated samples. Override for non-2D data.
@@ -153,6 +157,7 @@ class FlowExample:
         args,
         generate_num_samples=1000,
         generate_dt=0.01,
+        generate_constraint_fn=None,
         parser=None,
         **train_kwargs,
     ):
@@ -166,7 +171,9 @@ class FlowExample:
             self.train(**train_kwargs)
         if args.generate:
             x, xs = self.generate(
-                num_samples=generate_num_samples, dt=generate_dt
+                num_samples=generate_num_samples,
+                dt=generate_dt,
+                constraint_fn=generate_constraint_fn,
             )
             self.plot(x, xs)
         if not args.train and not args.generate:

@@ -1,3 +1,4 @@
+import jax.numpy as jnp
 from datasets.unit_circle import UnitCircleDataset
 from architectures.flow import FlowMLP
 from examples.example_base import FlowExample
@@ -31,8 +32,15 @@ example = FlowExample(
     save_path=args.save_path,
     plot_lims=(-2, 2),
 )
+
+# Define an interesting nonlinear constraint g(x) = 0.
+def unit_circle_constraint(x):
+    """Constraint g(x) = ||x||^2 - 1, satisfied on the unit circle."""
+    return jnp.sum(x**2, axis=-1) - 1.0
+
 example.run(
     args,
+    generate_constraint_fn=unit_circle_constraint,
     parser=parser,
     **hyperparams
 )
