@@ -1,13 +1,23 @@
-from datasets.star import StarDataset
-from architectures.flow import FlowMLP
-from examples.example_base import FlowExample
+import argparse
+from pathlib import Path
+
+import cloudpickle
 from flax import nnx
 
-# Parse command line arguments (use --help to see options)
-parser = FlowExample.build_arg_parser("data/star_model.pkl")
+from architectures.flow import FlowMLP
+from datasets.star import StarDataset
+from examples.common import plot_2d
+from generation import generate
+import training
+
+parser = argparse.ArgumentParser()
+parser.add_argument("--train", action="store_true")
+parser.add_argument("--generate", action="store_true")
+parser.add_argument("--save-path", type=str, default="data/star_model.pkl")
 args = parser.parse_args()
 
-# Define the architecture of the flow model we'll train.
+save_path = Path(args.save_path)
+dataset = StarDataset(num_samples=1024)
 model = FlowMLP(
     data_shape=(2,),
     time_embedding_size=4,
@@ -15,24 +25,31 @@ model = FlowMLP(
     rngs=nnx.Rngs(0),
 )
 
-# Define training hyperparameters
-hyperparams = {
-    "num_epochs": 5000,
-    "batch_size": 256,
-    "learning_rate": 1e-3,
-    "seed": 0,
-    "print_frequency": 100,
-}
+if args.train:
+    model, normalizer = training.train(
+        dataset=dataset,
+        model=model,
+        num_epochs=5000,
+        batch_size=256,
+        learning_rate=1e-3,
+        seed=0,
+        print_frequency=100,
+    )
+    print("Saving trained model and normalizer to", save_path)
+    save_path.parent.mkdir(parents=True, exist_ok=True)
+    with open(save_path, "wb") as f:
+        cloudpickle.dump({"model": model, "normalizer": normalizer}, f)
 
-# Run training and/or generation, depending on CLI flags
-example = FlowExample(
-    dataset=StarDataset(num_samples=1024),
-    model=model,
-    save_path=args.save_path,
-    plot_lims=(-2, 2),
-)
-example.run(
-    args,
-    parser=parser,
-    **hyperparams
-)
+if args.generate:
+    print("Loading trained model and normalizer from", save_path)
+    with open(save_path, "rb") as f:
+        data = cloudpickle.load(f)
+    model = data["model"]
+    normalizer = data["normalizer"]
+
+    print("Generating samples...")
+    x, xs = generate(model, normalizer, num_samples=1000, dt=0.01)
+    plot_2d(dataset, x, xs, plot_lims=(-2, 2))
+
+if not args.train and not args.generate:
+    parser.print_help()
