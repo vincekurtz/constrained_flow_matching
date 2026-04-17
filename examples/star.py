@@ -71,7 +71,8 @@ if args.generate_constrained:
         unit_circle_constraint,
         num_samples=1000,
         dt=0.01,
-        penalty_weight=5.0,
+        penalty_weight=10.0,
+        rescale_factor=100.0,
     )
 
     # Report constraint violation statistics.

@@ -143,7 +143,9 @@ def generate_constrained_inverse_free(
     """Generate samples from a trained flow model subject to g(x) = 0.
 
     Uses a flowed Lagrange multiplier to avoid the need for a Jacobian
-    pseudoinverse.
+    pseudoinverse.  At each time-step the constraint value ``g`` and its
+    Jacobian ``J`` are computed once per sample and reused for both the
+    multiplier update and the velocity projection.
 
     Args:
         model: Trained flow model xdot = v(x, t).
@@ -168,57 +170,55 @@ def generate_constrained_inverse_free(
     rng = jax.random.key(seed)
 
     def _g(x_i):
-        """Constraint function applied to a single normalized sample."""
-        x_i = normalizer.unnormalize(x_i)
-        g_i = constraint_fn(x_i)
-        return penalty_weight * g_i
+        """Constraint on a single normalized sample (any shape)."""
+        return constraint_fn(normalizer.unnormalize(x_i))
 
-    def _constrain_velocity(x_i, v_i, lmbda_i):
-        """Project one sample's velocity onto the constraint tangent space."""
+    def _g_flat(x_flat, data_shape):
+        """Constraint on a flattened normalized sample."""
+        return jnp.atleast_1d(_g(x_flat.reshape(data_shape)))
+
+    def _step_single(x_i, v_i, lmbda_i, t):
+        """Per-sample step: compute g/J once, update lambda and project v."""
         data_shape = x_i.shape
         x_flat = x_i.ravel()
         v_flat = v_i.ravel()
 
-        def _g_flat(xf):
-            return _g(xf.reshape(data_shape))
+        g_flat = lambda xf: _g_flat(xf, data_shape)
+        g = g_flat(x_flat)
+        J = jnp.atleast_2d(jax.jacobian(g_flat)(x_flat))
 
-        g = jnp.atleast_1d(_g_flat(x_flat))
-        J = jnp.atleast_2d(jax.jacobian(_g_flat)(x_flat))
+        # Flow the Lagrange multiplier (Platt & Barr 1987).
+        dt_lmbda = rescale_factor * dt / (1 - t + 1e-8)
+        lmbda_next = lmbda_i + dt_lmbda * g
 
-        lmbda_i = jnp.atleast_1d(lmbda_i)
+        # Project velocity: remove constraint-normal component and add
+        # penalty pulling toward the manifold.
+        correction = lmbda_next.T @ J + penalty_weight * g.T @ J
+        v_proj = (v_flat - correction).reshape(data_shape)
 
-        v_proj = v_flat - J.T @ lmbda_i
-
-        # Penalty: pull toward the constraint manifold via a quadratic penalty
-        # on ||g(x)||^2.
-        v_proj = v_proj - J.T @ g
-
-        return v_proj.reshape(data_shape)
+        x_next = x_i + dt * v_proj
+        return x_next, lmbda_next
 
     def _step_fn(carry, t):
-        """Single forward Euler step with constraint projection."""
+        """Batched forward Euler step with constraint projection."""
         x, lmbda = carry
 
-        # Get the original vector field xdot = v(x, t)
+        # Evaluate the learned vector field.
         t_batch = jnp.full((x.shape[0],), t)
         v = model(x, t_batch)
 
-        # Flow the Lagrange multiplier, see Platt and Barr, Constrained
-        # Differential Optimization, 1987.
-        lmbda_dot = _g(x)
-        dt_lmbda = rescale_factor * dt / (1 - t + 1e-8)
-        lmbda = lmbda + dt_lmbda * lmbda_dot
+        # Per-sample constraint correction (vmapped).
+        x_next, lmbda_next = jax.vmap(
+            _step_single, in_axes=(0, 0, 0, None)
+        )(x, v, lmbda, t)
 
-        # Apply per-sample constraint correction,
-        # xdot = v(x, t) - λ' v(x, t) - ∇ ||g(x)||²
-        v = jax.vmap(_constrain_velocity)(x, v, lmbda)
-
-        x_next = x + dt * v
-
-        return (x_next, lmbda), x_next
+        return (x_next, lmbda_next), x_next
 
     x_init = jax.random.normal(rng, (num_samples,) + model.data_shape)
-    lmbda_init = jax.vmap(_g)(x_init)
+
+    # Initialise multipliers from the constraint value at the starting noise.
+    lmbda_init = jax.vmap(lambda xi: jnp.atleast_1d(_g(xi)))(x_init)
+    lmbda_init = penalty_weight * lmbda_init
 
     timesteps = jnp.arange(0, 1.0, dt)
     (x, lmbda), xs = jax.lax.scan(_step_fn, (x_init, lmbda_init), timesteps)
