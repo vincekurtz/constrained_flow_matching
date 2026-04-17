@@ -60,9 +60,6 @@ def generate_constrained(
     the constraint tangent space, plus a penalty term that pulls samples toward
     the constraint manifold.
 
-    The constraint correction is computed per-sample (via ``jax.vmap``) so that
-    the Jacobian of ``g`` is always taken with respect to a single data point.
-
     Args:
         model: Trained flow model xdot = v(x, t).
         normalizer: Normalizer used during training, applied in reverse to
@@ -78,36 +75,42 @@ def generate_constrained(
 
     Returns:
         x: Final generated samples of shape ``(num_samples, *data_shape)``.
-        xs: Full trajectories of shape ``(num_steps, num_samples, *data_shape)``.
+        xs: Trajectories of shape ``(num_steps, num_samples, *data_shape)``.
     """
     rng = jax.random.key(seed)
     x = jax.random.normal(rng, (num_samples,) + model.data_shape)
 
     def _g(x_i):
         """Constraint function applied to a single normalized sample."""
-        return constraint_fn(normalizer.unnormalize(x_i))
+        x_i = normalizer.unnormalize(x_i)
+        g_i = constraint_fn(x_i)
+        return penalty_weight * g_i
 
     def _constrain_velocity(x_i, v_i):
         """Project one sample's velocity onto the constraint tangent space."""
         g = jnp.atleast_1d(_g(x_i))
         J = jnp.atleast_2d(jax.jacobian(_g)(x_i))
 
-        # Project: remove component along constraint gradient
+        # Project: remove component along constraint gradient via analytical
+        # Lagrange multiplier. 
         JJT = J @ J.T + 1e-6 * jnp.eye(g.shape[0])
         lmbda = jnp.linalg.solve(JJT, J @ v_i)
         v_proj = v_i - J.T @ lmbda
 
-        # Penalty: pull toward the constraint manifold
-        v_proj = v_proj - penalty_weight * J.T @ g
+        # Penalty: pull toward the constraint manifold via a quadratic penalty
+        # on ||g(x)||^2.
+        v_proj = v_proj - J.T @ g
 
         return v_proj
 
     def _step_fn(x, t):
         """Single forward Euler step with constraint projection."""
+        # Get the original vector field xdot = v(x, t)
         t_batch = jnp.full((x.shape[0],), t)
         v = model(x, t_batch)
 
-        # Apply per-sample constraint correction
+        # Apply per-sample constraint correction,
+        # xdot = v(x, t) - λ' v(x, t) - ∇ ||g(x)||²
         v = jax.vmap(_constrain_velocity)(x, v)
 
         x_next = x + dt * v
