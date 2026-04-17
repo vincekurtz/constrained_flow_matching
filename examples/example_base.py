@@ -7,6 +7,7 @@ import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import training
+from generation import generate
 
 
 class FlowExample:
@@ -91,19 +92,7 @@ class FlowExample:
         normalizer = data["normalizer"]
 
         print("Generating samples...")
-        rng = jax.random.key(42)
-        x = jax.random.normal(rng, (num_samples,) + model.data_shape)
-
-        def _step_fn(x, t):
-            """Single forward Euler step on the flow ODE xdot = v(x, t)."""
-            t_batch = jnp.full((x.shape[0],), t)
-            x_next = x + dt * model(x, t_batch)
-            return x_next, x_next
-
-        timesteps = jnp.arange(0, 1.0, dt)
-        x, xs = jax.lax.scan(_step_fn, x, timesteps)
-
-        return normalizer.unnormalize(x), normalizer.unnormalize(xs)
+        return generate(model, normalizer, num_samples=num_samples, dt=dt)
 
     def plot(self, x: jax.Array, xs: jax.Array):
         """Plot generated samples. Override for non-2D data.
