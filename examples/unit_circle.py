@@ -8,13 +8,16 @@ from flax import nnx
 from architectures.flow import FlowMLP
 from datasets.unit_circle import UnitCircleDataset
 from examples.common import plot_2d
-from generation import generate_constrained
+from generation import generate, generate_constrained
 import training
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--train", action="store_true")
 parser.add_argument("--generate", action="store_true")
-parser.add_argument("--save-path", type=str, default="data/unit_circle_model.pkl")
+parser.add_argument("--generate_constrained", action="store_true")
+parser.add_argument(
+    "--save-path", type=str, default="data/unit_circle_model.pkl"
+)
 args = parser.parse_args()
 
 save_path = Path(args.save_path)
@@ -48,15 +51,38 @@ if args.generate:
     model = data["model"]
     normalizer = data["normalizer"]
 
+    print("Generating samples...")
+    x, xs = generate(
+        model, normalizer, num_samples=1000, dt=0.01
+    )
+    plot_2d(dataset, x, xs, plot_lims=(-2, 2))
+
+if args.generate_constrained:
+    print("Loading trained model and normalizer from", save_path)
+    with open(save_path, "rb") as f:
+        data = cloudpickle.load(f)
+    model = data["model"]
+    normalizer = data["normalizer"]
+
     def unit_circle_constraint(x):
         """Constraint g(x) = ||x||^2 - 1, satisfied on the unit circle."""
         return jnp.sum(x**2, axis=-1) - 1.0
 
-    print("Generating samples...")
+    print("Generating samples with unit circle constraint...")
     x, xs = generate_constrained(
-        model, normalizer, unit_circle_constraint, num_samples=1000, dt=0.01
+        model,
+        normalizer,
+        unit_circle_constraint,
+        num_samples=1000,
+        dt=0.01,
+        penalty_weight=5.0,
     )
+
+    # Report constraint violation statistics.
+    g = unit_circle_constraint(x)
+    print(f"Constraint violation: mean={g.mean()}, max={g.max()}")
+
     plot_2d(dataset, x, xs, plot_lims=(-2, 2))
 
-if not args.train and not args.generate:
+if not (args.train or args.generate or args.generate_constrained):
     parser.print_help()
