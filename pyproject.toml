@@ -1,7 +1,7 @@
 [project]
-name = "flow-contraction"
+name = "constrained-flow-matching"
 version = "0.1.0"
-description = "Flow matching meets contraction theory"
+description = "Applying constraints to pre-trained flow-matching models"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
