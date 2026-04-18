@@ -2,19 +2,21 @@ import argparse
 from pathlib import Path
 
 import cloudpickle
+import jax
 import jax.numpy as jnp
 from flax import nnx
 
 from architectures.flow import FlowMLP
 from datasets.unit_circle import UnitCircleDataset
 from examples.common import plot_2d
-from generation import generate, generate_constrained
+from generation import generate, generate_constrained, generate_inequality_constrained
 import training
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--train", action="store_true")
 parser.add_argument("--generate", action="store_true")
 parser.add_argument("--generate_constrained", action="store_true")
+parser.add_argument("--generate_inequality", action="store_true")
 parser.add_argument(
     "--save-path", type=str, default="data/unit_circle_model.pkl"
 )
@@ -86,5 +88,37 @@ if args.generate_constrained:
 
     plot_2d(dataset, x, xs, plot_lims=(-2, 2))
 
-if not (args.train or args.generate or args.generate_constrained):
+if args.generate_inequality:
+    print("Loading trained model and normalizer from", save_path)
+    with open(save_path, "rb") as f:
+        data = cloudpickle.load(f)
+    model = data["model"]
+    normalizer = data["normalizer"]
+
+    def right_half_constraint(x):
+        """Inequality h(x) = -x[0] <= 0, satisfied when x[0] > 0."""
+        return -x[0]
+
+    print("Generating samples with x[0] > 0 inequality constraint...")
+    x, xs = generate_inequality_constrained(
+        model,
+        normalizer,
+        right_half_constraint,
+        method="flow",
+        num_samples=1000,
+        dt=0.01,
+        penalty_weight=5.0,
+        rescale_factor=10.0,
+    )
+
+    # Report constraint violation statistics.
+    h = jax.vmap(right_half_constraint)(x)
+    n_violated = int(jnp.sum(h > 0))
+    print(f"Samples violating x[0] > 0: {n_violated}/{x.shape[0]}")
+    print(f"h(x): mean={float(h.mean()):.4f}, max={float(h.max()):.4f}")
+
+    plot_2d(dataset, x, xs, plot_lims=(-2, 2))
+
+if not (args.train or args.generate or args.generate_constrained
+        or args.generate_inequality):
     parser.print_help()

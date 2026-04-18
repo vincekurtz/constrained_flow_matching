@@ -161,3 +161,123 @@ def generate_constrained(
 
     # All trajectories are in normalized space, so unnormalize before returning.
     return normalizer.unnormalize(x), normalizer.unnormalize(xs)
+
+
+def generate_inequality_constrained(
+    model: nnx.Module,
+    normalizer: Normalizer,
+    constraint_fn: Callable[[jax.Array], jax.Array],
+    method: str = "flow",
+    num_samples: int = 1000,
+    dt: float = 0.01,
+    seed: int = 0,
+    penalty_weight: float = 5.0,
+    rescale_factor: float = 10.0,
+) -> Tuple[jax.Array, jax.Array]:
+    """Generate samples from a trained flow model subject to h(x) <= 0.
+
+    Introduces slack variables s <= 0 with trivial dynamics (s_dot = 0) and
+    enforces h(x) = s as an equality constraint on the augmented state (x, s).
+
+    Args:
+        model: Trained flow model xdot = v(x, t). Must have a ``data_shape``
+            attribute.
+        normalizer: Normalizer used during training, applied in reverse to
+            produce samples in the original data space.
+        constraint_fn: Differentiable function ``h(x)`` (operating on a single
+            *unnormalized* sample) defining the inequality ``h(x) <= 0``.
+            May return a scalar or a 1-D array.
+        method: How to compute the Lagrange multipliers. Must be one of
+            - "pseudoinverse": analytical solution via Jacobian pseudoinverse.
+            - "flow": approximate solution via flowing a dual ODE.
+            - "penalty": quadratic penalty only.
+        num_samples: Number of samples to generate.
+        dt: Step size for the forward Euler integrator.
+        seed: Random seed for the initial noise.
+        penalty_weight: Strength of the quadratic penalty pulling samples
+            toward the constraint manifold.
+        rescale_factor: Factor by which to rescale the time for the Lagrange
+            multiplier flow. Only used in "flow" method.
+
+    Returns:
+        x: Final generated samples of shape ``(num_samples, *data_shape)``.
+        xs: Trajectories of shape ``(num_steps, num_samples, *data_shape)``.
+    """
+    rng = jax.random.key(seed)
+    data_shape = model.data_shape
+
+    def _h(x_flat):
+        """Inequality h(x), applied to a single flattened normalized sample."""
+        x = x_flat.reshape(data_shape)
+        x = normalizer.unnormalize(x)
+        return jnp.atleast_1d(penalty_weight * constraint_fn(x))
+
+    def _step_single(x, v, s, lmbda, t):
+        """Integration step for a single sample with slack variables.
+
+        The augmented equality constraint is G(x, s) = h(x) - s = 0 with
+        augmented Jacobian J_aug = [J_h, -I].
+        """
+        x_flat = x.ravel()
+        v_flat = v.ravel()
+
+        h = _h(x_flat)
+        J_h = jnp.atleast_2d(jax.jacobian(_h)(x_flat))
+
+        # Augmented equality constraint: G(x, s) = h(x) - s.
+        g = h - s
+
+        if method == "flow":
+            dt_lmbda = rescale_factor * dt / (1 - t + 1e-8)
+            lmbda = lmbda + dt_lmbda * g
+        elif method == "pseudoinverse":
+            # J_aug @ J_aug^T = J_h @ J_h^T + I (the +I comes from the slack).
+            # J_aug @ v_aug = J_h @ v_flat (since s_dot = 0).
+            JJT = J_h @ J_h.T + jnp.eye(g.shape[0])
+            lmbda = jnp.linalg.solve(JJT, J_h @ v_flat)
+        elif method == "penalty":
+            lmbda = jnp.zeros_like(g)
+        else:
+            raise ValueError(f"Invalid method: {method}")
+
+        # x update: x_dot = v - J_h^T @ lmbda - J_h^T @ g
+        x_dot = v_flat - J_h.T @ lmbda - J_h.T @ g
+        x = x + dt * x_dot.reshape(data_shape)
+
+        # s update: s_dot = 0 - (-I)^T @ lmbda - (-I)^T @ g = lmbda + g
+        s = s + dt * (lmbda + g)
+
+        # Project slack onto s <= 0.
+        s = jnp.minimum(s, 0.0)
+
+        return x, s, lmbda
+
+    def _step_fn(carry, t):
+        """Batched forward Euler step with inequality constraint projection."""
+        x, s, lmbda = carry
+
+        t_batch = jnp.full((x.shape[0],), t)
+        v = model(x, t_batch)
+
+        x_next, s_next, lmbda_next = jax.vmap(
+            _step_single, in_axes=(0, 0, 0, 0, None)
+        )(x, v, s, lmbda, t)
+
+        return (x_next, s_next, lmbda_next), x_next
+
+    # Data samples are initialized as Gaussian noise.
+    x_init = jax.random.normal(rng, (num_samples,) + data_shape)
+
+    # Initialize slacks: s = min(h(x_0), 0) so s <= 0.
+    h_init = jax.vmap(lambda xi: _h(xi.ravel()))(x_init)
+    s_init = jnp.minimum(h_init, 0.0)
+    lmbda_init = jnp.zeros_like(h_init)
+
+    # Integrate the constrained flow ODE from t=0 to t=1.
+    timesteps = jnp.arange(0, 1.0, dt)
+    (x, _, _), xs = jax.lax.scan(
+        _step_fn, (x_init, s_init, lmbda_init), timesteps
+    )
+
+    # All trajectories are in normalized space, so unnormalize before returning.
+    return normalizer.unnormalize(x), normalizer.unnormalize(xs)
