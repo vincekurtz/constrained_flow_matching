@@ -112,10 +112,20 @@ def generate_constrained(
         g = _g(x_flat)
         J = jnp.atleast_2d(jax.jacobian(_g)(x_flat))
 
+        # Constrained flow: ẋ = v(x, t) − Jᵀλ − ∇‖g(x)‖²/2
+        x_dot = v_flat - J.T @ lmbda - J.T @ g
+
+        # Forward euler integration step.
+        x = x + dt * x_dot.reshape(data_shape)
+
+        # Recompute g after the state update for the multiplier step, resulting
+        # in a semi-implicit scheme in λ.
+        g = _g(x.ravel())
+
         if method == "flow":
             # Flow the Lagrange multiplier (Platt & Barr 1987), but use
             # rescaled time s = -ρ log(1 - t) to reach s = ∞ at t = 1.
-            dt_lmbda = rescale_factor * dt / (1 - t + 1e-8)
+            dt_lmbda = rescale_factor * dt / (1 - t + dt + 1e-6)**2
             lmbda = lmbda + dt_lmbda * g
         elif method == "pseudoinverse":
             # Analytical solution via Jacobian pseudoinverse.
@@ -125,12 +135,6 @@ def generate_constrained(
             lmbda = jnp.zeros_like(g)
         else:
             raise ValueError(f"Invalid lagrange multiplier method: {method}")
-
-        # Constrained flow: ẋ = v(x, t) − Jᵀλ − ∇‖g(x)‖²/2
-        x_dot = v_flat - J.T @ lmbda - J.T @ g
-
-        # Forward euler integration step.
-        x = x + dt * x_dot.reshape(data_shape)
         return x, lmbda
 
     def _step_fn(carry, t):

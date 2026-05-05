@@ -79,11 +79,11 @@ if args.generate_constrained:
         num_samples=1000,
         dt=0.01,
         penalty_weight=5.0,
-        rescale_factor=10.0,
+        rescale_factor=1.0,
     )
 
     # Report constraint violation statistics.
-    g = unit_circle_constraint(x)
+    g = jnp.abs(unit_circle_constraint(x))
     print(f"Constraint violation: mean={g.mean()}, max={g.max()}")
 
     plot_2d(dataset, x, xs, plot_lims=(-2, 2))
