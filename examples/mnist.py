@@ -96,7 +96,6 @@ if args.generate_constrained:
         model,
         normalizer,
         inpainting_constraint,
-        method="flow",
         num_samples=num_samples,
         dt=0.01,
         penalty_weight=10.0,

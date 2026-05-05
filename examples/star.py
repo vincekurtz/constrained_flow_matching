@@ -69,7 +69,6 @@ if args.generate_constrained:
         model,
         normalizer,
         unit_circle_constraint,
-        method="flow",
         num_samples=1000,
         dt=0.01,
         penalty_weight=5.0,

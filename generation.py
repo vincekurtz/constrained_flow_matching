@@ -1,5 +1,6 @@
 from typing import Callable, Tuple
 
+import diffrax
 from flax import nnx
 import jax
 import jax.numpy as jnp
@@ -50,7 +51,6 @@ def generate_constrained(
     model: nnx.Module,
     normalizer: Normalizer,
     constraint_fn: Callable[[jax.Array], jax.Array],
-    method: str = "flow",
     num_samples: int = 1000,
     dt: float = 0.01,
     seed: int = 0,
@@ -67,18 +67,15 @@ def generate_constrained(
         constraint_fn: Differentiable function ``g(x)`` (operating on a single
             *unnormalized* sample) whose zero-level set defines the constraint
             manifold.  May return a scalar or a 1-D array.
-        method: How to compute the Lagrange multipliers. Must be one of
-            - "pseudoinverse": analytical solution via Jacobian pseudoinverse.
-            - "flow": approximate solution via flowing a dual ODE.
-            - "penalty": quadratic penalty only.
         num_samples: Number of samples to generate.
-        dt: Step size for the forward Euler integrator.
+        dt: Step size used for solution output times between ``t=0`` and
+            ``t=1``.
         seed: Random seed for the initial noise.
         penalty_weight: Strength of the quadratic penalty pulling samples
             toward the constraint manifold.
         rescale_factor: Factor by which to rescale the time for the Lagrange
             multiplier flow. This can help enforce the constraint more strictly
-            but leads to a stiffer ODE. Only used in "flow" method.
+            but leads to a stiffer ODE.
 
     Returns:
         x: Final generated samples of shape ``(num_samples, *data_shape)``.
@@ -93,65 +90,24 @@ def generate_constrained(
         x = normalizer.unnormalize(x)
         return jnp.atleast_1d(penalty_weight * constraint_fn(x))
 
-    def _step_single(x, v, lmbda, t):
-        """Perform an integration step for a single sample.
-
-        Args:
-            x: Current state (generated sample).
-            v: Unconstrained vector field v(x, t).
-            lmbda: Current Lagrange multiplier.
-            t: Current time.
-
-        Returns:
-            State after the integration step.
-            Lagrange multiplier after the integration step.
-        """
-        x_flat = x.ravel()
-        v_flat = v.ravel()
-
-        g = _g(x_flat)
-        J = jnp.atleast_2d(jax.jacobian(_g)(x_flat))
-
-        # Constrained flow: ẋ = v(x, t) − Jᵀλ − ∇‖g(x)‖²/2
-        x_dot = v_flat - J.T @ lmbda - J.T @ g
-
-        # Forward euler integration step.
-        x = x + dt * x_dot.reshape(data_shape)
-
-        # Recompute g after the state update for the multiplier step, resulting
-        # in a semi-implicit scheme in λ.
-        g = _g(x.ravel())
-
-        if method == "flow":
-            # Flow the Lagrange multiplier (Platt & Barr 1987), but use
-            # rescaled time s = -ρ log(1 - t) to reach s = ∞ at t = 1.
-            dt_lmbda = rescale_factor * dt / (1 - t + 1e-6)**2
-            lmbda = lmbda + dt_lmbda * g
-        elif method == "pseudoinverse":
-            # Analytical solution via Jacobian pseudoinverse.
-            JJT = J @ J.T + 1e-6 * jnp.eye(g.shape[0])
-            lmbda = jnp.linalg.solve(JJT, J @ v_flat)
-        elif method == "penalty":
-            lmbda = jnp.zeros_like(g)
-        else:
-            raise ValueError(f"Invalid lagrange multiplier method: {method}")
-        return x, lmbda
-
-    def _step_fn(carry, t):
-        """Batched forward Euler step with constraint projection."""
-        x, lmbda = carry
-
-        # Evaluate the learned vector field.
+    def _ode_fn(t, y, args):
+        """Batched constrained dynamics for the primal-dual flow."""
+        del args
+        x, lmbda = y
         t_batch = jnp.full((x.shape[0],), t)
         v = model(x, t_batch)
 
-        # Integrate the state and langrange multiplier for each sample in the
-        # batch, following a constrained/corrected ODE.
-        x_next, lmbda_next = jax.vmap(_step_single, in_axes=(0, 0, 0, None))(
-            x, v, lmbda, t
-        )
+        x_flat = x.reshape((x.shape[0], -1))
+        v_flat = v.reshape((v.shape[0], -1))
 
-        return (x_next, lmbda_next), x_next
+        g = jax.vmap(_g)(x_flat)
+        J = jax.vmap(jax.jacobian(_g))(x_flat)
+
+        correction = jnp.einsum("bmd,bm->bd", J, lmbda + g)
+        x_dot = (v_flat - correction).reshape(x.shape)
+        lmbda_dot = rescale_factor * g / (1 - t + 1e-6) ** 2
+
+        return x_dot, lmbda_dot
 
     # Data samples are initialized as Gaussian noise.
     x_init = jax.random.normal(rng, (num_samples,) + data_shape)
@@ -160,8 +116,18 @@ def generate_constrained(
     lmbda_init = 0.0 * jax.vmap(lambda xi: _g(xi.ravel()))(x_init)
 
     # Integrate the constrained flow ODE from t=0 to t=1.
-    timesteps = jnp.arange(0, 1.0, dt)
-    (x, _), xs = jax.lax.scan(_step_fn, (x_init, lmbda_init), timesteps)
+    solution = diffrax.diffeqsolve(
+        diffrax.ODETerm(_ode_fn),
+        diffrax.Euler(),
+        t0=0.0,
+        t1=1.0,
+        dt0=dt,
+        y0=(x_init, lmbda_init),
+        saveat=diffrax.SaveAt(ts=jnp.arange(dt, 1.0, dt)),
+        stepsize_controller=diffrax.ConstantStepSize(),
+    )
+    xs, _ = solution.ys
+    x = xs[-1]
 
     # All trajectories are in normalized space, so unnormalize before returning.
     return normalizer.unnormalize(x), normalizer.unnormalize(xs)
