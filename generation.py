@@ -55,7 +55,7 @@ def generate_constrained(
     dt: float = 0.01,
     seed: int = 0,
     penalty_weight: float = 5.0,
-    rescale_factor: float = 10.0,
+    rescale_factor: float = 1.0,
 ) -> Tuple[jax.Array, jax.Array]:
     """Generate samples from a trained flow model subject to g(x) = 0.
 
@@ -125,7 +125,7 @@ def generate_constrained(
         if method == "flow":
             # Flow the Lagrange multiplier (Platt & Barr 1987), but use
             # rescaled time s = -ρ log(1 - t) to reach s = ∞ at t = 1.
-            dt_lmbda = rescale_factor * dt / (1 - t + dt + 1e-6)**2
+            dt_lmbda = rescale_factor * dt / (1 - t + 1e-6)**2
             lmbda = lmbda + dt_lmbda * g
         elif method == "pseudoinverse":
             # Analytical solution via Jacobian pseudoinverse.

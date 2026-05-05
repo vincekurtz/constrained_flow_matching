@@ -100,7 +100,7 @@ if args.generate_constrained:
         num_samples=num_samples,
         dt=0.01,
         penalty_weight=10.0,
-        rescale_factor=10.0,
+        rescale_factor=1.0,
     )
     gen_time = time.time() - start_time
     print(f"Generated {num_samples} samples in {gen_time:.2f} seconds")
