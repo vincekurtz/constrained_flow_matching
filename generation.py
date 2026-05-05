@@ -118,14 +118,18 @@ def generate_constrained(
     # Integrate the constrained flow ODE from t=0 to t=1.
     solution = diffrax.diffeqsolve(
         diffrax.ODETerm(_ode_fn),
-        diffrax.Euler(),
+        diffrax.Dopri5(),
         t0=0.0,
         t1=1.0,
         dt0=dt,
         y0=(x_init, lmbda_init),
         saveat=diffrax.SaveAt(ts=jnp.arange(dt, 1.0, dt)),
-        stepsize_controller=diffrax.ConstantStepSize(),
+        # stepsize_controller=diffrax.ConstantStepSize(),
+        stepsize_controller=diffrax.PIDController(
+            rtol=1e-3, atol=1e-3, dtmin=1e-4, dtmax=0.1
+        ),
     )
+    print(solution.stats["num_steps"], "steps taken")
     xs, _ = solution.ys
     x = xs[-1]
 
