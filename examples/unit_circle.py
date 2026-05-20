@@ -108,6 +108,7 @@ if args.generate_inequality:
         return -x[0]
 
     print("Generating samples with x[0] > 0 inequality constraint...")
+    start_time = time.time()
     x, xs = generate_inequality_constrained(
         model,
         normalizer,
@@ -117,6 +118,9 @@ if args.generate_inequality:
         penalty_weight=5.0,
         rescale_factor=1.0,
     )
+    jax.block_until_ready(x)
+    end_time = time.time()
+    print(f"Generation took {end_time - start_time:.2f} seconds")
 
     # Report constraint violation statistics.
     h = jax.vmap(right_half_constraint)(x)

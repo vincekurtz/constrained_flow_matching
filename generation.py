@@ -206,14 +206,11 @@ def generate_inequality_constrained(
         v_flat = v.reshape((v.shape[0], -1))
 
         def _single(x_i, v_i, s_i, lmbda_i):
-            h = _h(x_i)
-            J_h = jnp.atleast_2d(jax.jacobian(_h)(x_i))
+            h, vjp_fn = jax.vjp(_h, x_i)
             g = h - s_i
-
+            x_dot = (v_i - vjp_fn(lmbda_i + g)[0]).reshape(data_shape)
             lmbda_dot = rescale_factor * g / (1 - t + 1e-8)
-            x_dot = (v_i - J_h.T @ lmbda_i - J_h.T @ g).reshape(data_shape)
             s_dot = jnp.minimum(lmbda_i + h, 0) - s_i
-
             return x_dot, s_dot, lmbda_dot
 
         x_dot, s_dot, lmbda_dot = jax.vmap(_single)(x_flat, v_flat, s, lmbda)
