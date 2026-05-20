@@ -17,15 +17,15 @@ def generate(
 ) -> Tuple[jax.Array, jax.Array]:
     """Generate samples from a trained flow-matching model.
 
-    Integrates the learned vector field from t=0 to t=1 using forward Euler,
-    then unnormalizes the result.
+    Integrates the learned vector field from t=0 to t=1, then unnormalizes
+    the result.
 
     Args:
         model: Trained flow model xdot = v(x, t).
         normalizer: Normalizer used during training, applied in reverse to
             produced samples in the original data space.
         num_samples: Number of samples to generate.
-        dt: Step size for the forward Euler integrator.
+        dt: Initial step size hint for the adaptive integrator.
         seed: Random seed for the initial noise.
 
     Returns:
@@ -33,16 +33,29 @@ def generate(
         xs: Full trajectories of shape (num_steps, num_samples, *data_shape).
     """
     rng = jax.random.key(seed)
-    x = jax.random.normal(rng, (num_samples,) + model.data_shape)
+    x_init = jax.random.normal(rng, (num_samples,) + model.data_shape)
 
-    def _step_fn(x, t):
-        """Single forward Euler step on the flow ODE xdot = v(x, t)."""
-        t_batch = jnp.full((x.shape[0],), t)
-        x_next = x + dt * model(x, t_batch)
-        return x_next, x_next
+    def _ode_fn(t, y, args):
+        del args
+        t_batch = jnp.full((y.shape[0],), t)
+        return model(y, t_batch)
 
-    timesteps = jnp.arange(0, 1.0, dt)
-    x, xs = jax.lax.scan(_step_fn, x, timesteps)
+    solution = diffrax.diffeqsolve(
+        diffrax.ODETerm(_ode_fn),
+        diffrax.Dopri5(),
+        t0=0.0,
+        t1=1.0,
+        dt0=dt,
+        y0=x_init,
+        saveat=diffrax.SaveAt(ts=jnp.arange(dt, 1.0, dt)),
+        stepsize_controller=diffrax.PIDController(
+            rtol=1e-3, atol=1e-3, dtmin=1e-4, dtmax=0.1
+        ),
+    )
+    xs = solution.ys
+    x = xs[-1]
+
+    print(solution.stats["num_steps"], "steps taken")
 
     return normalizer.unnormalize(x), normalizer.unnormalize(xs)
 
@@ -141,7 +154,6 @@ def generate_inequality_constrained(
     model: nnx.Module,
     normalizer: Normalizer,
     constraint_fn: Callable[[jax.Array], jax.Array],
-    method: str = "flow",
     num_samples: int = 1000,
     dt: float = 0.01,
     seed: int = 0,
@@ -150,8 +162,8 @@ def generate_inequality_constrained(
 ) -> Tuple[jax.Array, jax.Array]:
     """Generate samples from a trained flow model subject to h(x) <= 0.
 
-    Introduces slack variables s <= 0 with trivial dynamics (s_dot = 0) and
-    enforces h(x) = s as an equality constraint on the augmented state (x, s).
+    Introduces slack variables s <= 0 and enforces h(x) = s as an equality
+    constraint via the primal-dual flow on the augmented state (x, s, lmbda).
 
     Args:
         model: Trained flow model xdot = v(x, t). Must have a ``data_shape``
@@ -161,17 +173,13 @@ def generate_inequality_constrained(
         constraint_fn: Differentiable function ``h(x)`` (operating on a single
             *unnormalized* sample) defining the inequality ``h(x) <= 0``.
             May return a scalar or a 1-D array.
-        method: How to compute the Lagrange multipliers. Must be one of
-            - "pseudoinverse": analytical solution via Jacobian pseudoinverse.
-            - "flow": approximate solution via flowing a dual ODE.
-            - "penalty": quadratic penalty only.
         num_samples: Number of samples to generate.
-        dt: Step size for the forward Euler integrator.
+        dt: Initial step size hint for the adaptive integrator.
         seed: Random seed for the initial noise.
         penalty_weight: Strength of the quadratic penalty pulling samples
             toward the constraint manifold.
         rescale_factor: Factor by which to rescale the time for the Lagrange
-            multiplier flow. Only used in "flow" method.
+            multiplier flow.
 
     Returns:
         x: Final generated samples of shape ``(num_samples, *data_shape)``.
@@ -186,59 +194,29 @@ def generate_inequality_constrained(
         x = normalizer.unnormalize(x)
         return jnp.atleast_1d(penalty_weight * constraint_fn(x))
 
-    def _step_single(x, v, s, lmbda, t):
-        """Integration step for a single sample with slack variables.
-
-        The augmented equality constraint is G(x, s) = h(x) - s = 0 with
-        augmented Jacobian J_aug = [J_h, -I].
-        """
-        x_flat = x.ravel()
-        v_flat = v.ravel()
-
-        h = _h(x_flat)
-        J_h = jnp.atleast_2d(jax.jacobian(_h)(x_flat))
-
-        # Augmented equality constraint: G(x, s) = h(x) - s.
-        g = h - s
-
-        if method == "flow":
-            dt_lmbda = rescale_factor * dt / (1 - t + 1e-8)
-            lmbda = lmbda + dt_lmbda * g
-        elif method == "pseudoinverse":
-            # J_aug @ J_aug^T = J_h @ J_h^T + I (the +I comes from the slack).
-            # J_aug @ v_aug = J_h @ v_flat (since s_dot = 0).
-            JJT = J_h @ J_h.T + jnp.eye(g.shape[0])
-            lmbda = jnp.linalg.solve(JJT, J_h @ v_flat)
-        elif method == "penalty":
-            lmbda = jnp.zeros_like(g)
-        else:
-            raise ValueError(f"Invalid method: {method}")
-
-        # x update: x_dot = v - J_h^T @ lmbda - J_h^T @ g
-        x_dot = v_flat - J_h.T @ lmbda - J_h.T @ g
-        x = x + dt * x_dot.reshape(data_shape)
-
-        # s update: s_dot = 0 - (-I)^T @ lmbda - (-I)^T @ g = lmbda + g
-        # Then use ReLU-like update to ensure s doesn't become positive.
-        s = s + dt * (jnp.minimum(lmbda + h, 0) - s)
-
-        # Project slack onto s <= 0.
-        # s = jnp.minimum(s, 0.0)
-
-        return x, s, lmbda
-
-    def _step_fn(carry, t):
-        """Batched forward Euler step with inequality constraint projection."""
-        x, s, lmbda = carry
-
+    def _ode_fn(t, y, args):
+        """Batched constrained dynamics for the primal-dual flow."""
+        del args
+        x, s, lmbda = y
         t_batch = jnp.full((x.shape[0],), t)
         v = model(x, t_batch)
 
-        x_next, s_next, lmbda_next = jax.vmap(
-            _step_single, in_axes=(0, 0, 0, 0, None)
-        )(x, v, s, lmbda, t)
+        x_flat = x.reshape((x.shape[0], -1))
+        v_flat = v.reshape((v.shape[0], -1))
 
-        return (x_next, s_next, lmbda_next), x_next
+        def _single(x_i, v_i, s_i, lmbda_i):
+            h = _h(x_i)
+            J_h = jnp.atleast_2d(jax.jacobian(_h)(x_i))
+            g = h - s_i
+
+            lmbda_dot = rescale_factor * g / (1 - t + 1e-8)
+            x_dot = (v_i - J_h.T @ lmbda_i - J_h.T @ g).reshape(data_shape)
+            s_dot = jnp.minimum(lmbda_i + h, 0) - s_i
+
+            return x_dot, s_dot, lmbda_dot
+
+        x_dot, s_dot, lmbda_dot = jax.vmap(_single)(x_flat, v_flat, s, lmbda)
+        return x_dot.reshape(x.shape), s_dot, lmbda_dot
 
     # Data samples are initialized as Gaussian noise.
     x_init = jax.random.normal(rng, (num_samples,) + data_shape)
@@ -249,10 +227,22 @@ def generate_inequality_constrained(
     lmbda_init = jnp.zeros_like(h_init)
 
     # Integrate the constrained flow ODE from t=0 to t=1.
-    timesteps = jnp.arange(0, 1.0, dt)
-    (x, _, _), xs = jax.lax.scan(
-        _step_fn, (x_init, s_init, lmbda_init), timesteps
+    solution = diffrax.diffeqsolve(
+        diffrax.ODETerm(_ode_fn),
+        diffrax.Dopri5(),
+        t0=0.0,
+        t1=1.0,
+        dt0=dt,
+        y0=(x_init, s_init, lmbda_init),
+        saveat=diffrax.SaveAt(ts=jnp.arange(dt, 1.0, dt)),
+        stepsize_controller=diffrax.ConstantStepSize(),
+        # stepsize_controller=diffrax.PIDController(
+        #     rtol=1e-3, atol=1e-3, dtmin=1e-3, dtmax=0.1
+        # ),
     )
+    print(solution.stats["num_steps"], "steps taken")
+    xs, _, _ = solution.ys
+    x = xs[-1]
 
     # All trajectories are in normalized space, so unnormalize before returning.
     return normalizer.unnormalize(x), normalizer.unnormalize(xs)

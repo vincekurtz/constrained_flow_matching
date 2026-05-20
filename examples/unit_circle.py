@@ -107,11 +107,10 @@ if args.generate_inequality:
         model,
         normalizer,
         right_half_constraint,
-        method="flow",
         num_samples=1000,
-        dt=0.01,
+        dt=0.02,
         penalty_weight=5.0,
-        rescale_factor=10.0,
+        rescale_factor=1.0,
     )
 
     # Report constraint violation statistics.
