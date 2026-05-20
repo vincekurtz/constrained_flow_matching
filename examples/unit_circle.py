@@ -9,7 +9,11 @@ from flax import nnx
 from architectures.flow import FlowMLP
 from datasets.unit_circle import UnitCircleDataset
 from examples.common import plot_2d
-from generation import generate, generate_constrained, generate_inequality_constrained
+from generation import (
+    generate,
+    generate_constrained,
+    generate_inequality_constrained,
+)
 import training
 
 parser = argparse.ArgumentParser()

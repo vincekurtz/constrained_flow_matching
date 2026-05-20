@@ -219,10 +219,11 @@ def generate_inequality_constrained(
         x = x + dt * x_dot.reshape(data_shape)
 
         # s update: s_dot = 0 - (-I)^T @ lmbda - (-I)^T @ g = lmbda + g
-        s = s + dt * (lmbda + g)
+        # Then use ReLU-like update to ensure s doesn't become positive.
+        s = s + dt * (jnp.minimum(lmbda + h, 0) - s)
 
         # Project slack onto s <= 0.
-        s = jnp.minimum(s, 0.0)
+        # s = jnp.minimum(s, 0.0)
 
         return x, s, lmbda
 
