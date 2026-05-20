@@ -1,5 +1,6 @@
 import argparse
 from pathlib import Path
+import time
 
 import cloudpickle
 import jax
@@ -75,6 +76,7 @@ if args.generate_constrained:
         return jnp.sum(x**2, axis=-1) - 1.0
 
     print("Generating samples with unit circle constraint...")
+    start_time = time.time()
     x, xs = generate_constrained(
         model,
         normalizer,
@@ -84,6 +86,9 @@ if args.generate_constrained:
         penalty_weight=5.0,
         rescale_factor=1.0,
     )
+    jax.block_until_ready(x)
+    end_time = time.time()
+    print(f"Generation took {end_time - start_time:.2f} seconds")
 
     # Report constraint violation statistics.
     g = jnp.abs(unit_circle_constraint(x))

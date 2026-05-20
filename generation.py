@@ -113,10 +113,11 @@ def generate_constrained(
         x_flat = x.reshape((x.shape[0], -1))
         v_flat = v.reshape((v.shape[0], -1))
 
-        g = jax.vmap(_g)(x_flat)
-        J = jax.vmap(jax.jacobian(_g))(x_flat)
+        def _vjp(x_i, lmbda_i):
+            g_i, vjp_fn = jax.vjp(_g, x_i)
+            return g_i, vjp_fn(lmbda_i + g_i)[0]
 
-        correction = jnp.einsum("bmd,bm->bd", J, lmbda + g)
+        g, correction = jax.vmap(_vjp)(x_flat, lmbda)
         x_dot = (v_flat - correction).reshape(x.shape)
         lmbda_dot = rescale_factor * g / (1 - t + 1e-6) ** 2
 
