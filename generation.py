@@ -47,7 +47,7 @@ def generate(
         t1=1.0,
         dt0=dt,
         y0=x_init,
-        saveat=diffrax.SaveAt(ts=jnp.arange(dt, 1.0, dt)),
+        saveat=diffrax.SaveAt(ts=jnp.arange(dt, 1.0, dt), t1=True),
         stepsize_controller=diffrax.PIDController(
             rtol=1e-3, atol=1e-3, dtmin=1e-4, dtmax=0.1
         ),
@@ -137,7 +137,7 @@ def generate_constrained(
         t1=1.0,
         dt0=dt,
         y0=(x_init, lmbda_init),
-        saveat=diffrax.SaveAt(ts=jnp.arange(dt, 1.0, dt)),
+        saveat=diffrax.SaveAt(ts=jnp.arange(dt, 1.0, dt), t0=True),
         # stepsize_controller=diffrax.ConstantStepSize(),
         stepsize_controller=diffrax.PIDController(
             rtol=1e-3, atol=1e-3, dtmin=1e-4, dtmax=0.1
@@ -232,7 +232,7 @@ def generate_inequality_constrained(
         t1=1.0,
         dt0=dt,
         y0=(x_init, s_init, lmbda_init),
-        saveat=diffrax.SaveAt(ts=jnp.arange(dt, 1.0, dt)),
+        saveat=diffrax.SaveAt(ts=jnp.arange(dt, 1.0, dt), t0=True),
         stepsize_controller=diffrax.ConstantStepSize(),
         # stepsize_controller=diffrax.PIDController(
         #     rtol=1e-3, atol=1e-3, dtmin=1e-3, dtmax=0.1
