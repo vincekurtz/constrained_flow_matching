@@ -152,6 +152,7 @@ if args.generate_pigdm:
         num_samples=1000,
         dt=0.01,
         guidance_scale=1.0,
+        eps_reg=1e-4,
     )
     jax.block_until_ready(x)
     end_time = time.time()
