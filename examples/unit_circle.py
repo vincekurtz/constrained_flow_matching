@@ -15,6 +15,7 @@ from generation import (
     generate_constrained,
     generate_inequality_constrained,
 )
+from pi_gdm import generate_pigdm
 import training
 
 parser = argparse.ArgumentParser()
@@ -22,6 +23,7 @@ parser.add_argument("--train", action="store_true")
 parser.add_argument("--generate", action="store_true")
 parser.add_argument("--generate_constrained", action="store_true")
 parser.add_argument("--generate_inequality", action="store_true")
+parser.add_argument("--generate_pigdm", action="store_true")
 parser.add_argument(
     "--save-path", type=str, default="data/unit_circle_model.pkl"
 )
@@ -130,6 +132,36 @@ if args.generate_inequality:
 
     plot_2d(dataset, x, xs, plot_lims=(-2, 2))
 
+if args.generate_pigdm:
+    print("Loading trained model and normalizer from", save_path)
+    with open(save_path, "rb") as f:
+        data = cloudpickle.load(f)
+    model = data["model"]
+    normalizer = data["normalizer"]
+
+    def unit_circle_constraint(x):
+        """Constraint g(x) = ||x||^2 - 1, satisfied on the unit circle."""
+        return jnp.sum(x**2, axis=-1) - 1.0
+
+    print("Generating samples with PiGDM unit circle guidance...")
+    start_time = time.time()
+    x, xs = generate_pigdm(
+        model,
+        normalizer,
+        unit_circle_constraint,
+        num_samples=1000,
+        dt=0.01,
+        guidance_scale=1.0,
+    )
+    jax.block_until_ready(x)
+    end_time = time.time()
+    print(f"Generation took {end_time - start_time:.2f} seconds")
+
+    g = jnp.abs(unit_circle_constraint(x))
+    print(f"Constraint violation: mean={g.mean()}, max={g.max()}")
+
+    plot_2d(dataset, x, xs, plot_lims=(-2, 2))
+
 if not (args.train or args.generate or args.generate_constrained
-        or args.generate_inequality):
+        or args.generate_inequality or args.generate_pigdm):
     parser.print_help()
