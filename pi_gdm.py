@@ -30,20 +30,34 @@ def generate_pigdm(
 ) -> Tuple[jax.Array, jax.Array]:
     """Generate samples from a flow-matching model with PiGDM guidance.
 
-    Implements the PiGDM baseline (Pokle et al., 2023) for the equality
-    constraint ``g(x) = 0``. At each integration step we compute the
-    Tweedie-style clean estimate ``mu = x_t + (1 - t) v(x_t, t)``, evaluate the
-    constraint residual ``g(mu)`` and its Jacobian ``A = dg/dmu``, and add a
-    pseudo-inverse correction
+    Implements the PiGDM baseline (Pokle et al., 2023, Algorithm 1) for the
+    equality constraint ``g(x) = 0``. At each integration step we compute the
+    Tweedie-style clean estimate ``mu = x_t + (1 - t) v(x_t, t)``, evaluate
+    the constraint residual ``g(mu)`` and its Jacobian ``A = dg/dmu``, and add
+    the pseudo-inverse correction of Eq. 15:
 
-        v_y = v + guidance * J^T A^T (r_t^2 A A^T + eps_reg I)^{-1} (y - A mu)
+        v_y = v + guidance * ((1 - t) / t)
+                * J^T A^T (r_t^2 A A^T + eps_reg I)^{-1} (y - A mu)
 
-    where ``J = d mu / d x_t`` and ``r_t^2 = (1 - t)^2 / (t^2 + (1 - t)^2)`` is
-    the approximate posterior variance of ``x_1`` given ``x_t`` under a
-    standard-Gaussian prior. Both the chain-rule push back through ``J`` and
-    the multiplication by ``A^T`` are evaluated with vector-Jacobian products,
-    so no Jacobians are formed explicitly except the small ``m x n`` constraint
+    where ``J = d mu / d x_t``, ``r_t^2 = (1 - t)^2 / (t^2 + (1 - t)^2)`` (Eq.
+    16), and ``(1 - t) / t`` is the score-to-vector-field scale from line 8 of
+    Algorithm 1. Both the chain-rule push back through ``J`` and the
+    multiplication by ``A^T`` are evaluated with vector-Jacobian products, so
+    no Jacobians are formed explicitly except the small ``m x n`` constraint
     Jacobian needed to build ``A A^T``.
+
+    Deviations from the paper (all engineering, not algorithmic):
+
+    * The paper uses simple Euler integration starting at ``t = 0.2`` with a
+      warmstart ``x_{0.2} = 0.2 y + 0.8 eps``; we use adaptive ``Dopri5`` from
+      ``t = 0`` with pure noise, since for a general nonlinear constraint
+      there is no obvious analogue of the linear warmstart.
+    * We use ``eps_reg I`` in place of ``sigma_y^2 I`` since we target the
+      noise-free constraint ``g(x) = 0``; ``eps_reg`` then doubles as
+      Tikhonov regularisation when ``r_t^2 A A^T`` becomes singular as
+      ``t -> 1``.
+    * ``t`` is floored by ``1e-3`` in the ``(1 - t) / t`` factor to keep the
+      first integration step finite.
 
     Args:
         model: Trained flow model xdot = v(x, t). Must have a ``data_shape``
@@ -57,9 +71,10 @@ def generate_pigdm(
         num_samples: Number of samples to generate.
         dt: Step size hint for the adaptive integrator.
         seed: Random seed for the initial noise.
-        guidance_scale: Multiplicative weight on the PiGDM correction.
-        eps_reg: Tikhonov regulariser on ``r_t^2 A A^T`` to keep the linear
-            system well-conditioned, especially as ``r_t -> 0`` near ``t = 1``.
+        guidance_scale: Extra multiplicative weight on the PiGDM correction;
+            ``1.0`` matches Algorithm 1 (``gamma_t = 1`` for OT-ODE).
+        eps_reg: Tikhonov regulariser on ``r_t^2 A A^T`` (substitutes for
+            ``sigma_y^2`` in our noise-free setting).
 
     Returns:
         x: Final generated samples of shape ``(num_samples, *data_shape)``.
@@ -79,8 +94,11 @@ def generate_pigdm(
         x = y
         x_flat = x.reshape((x.shape[0], -1))
 
-        # Posterior variance scale; r_t -> 0 as t -> 1 (denoised limit).
+        # Posterior variance scale (Eq. 16); r_t -> 0 as t -> 1.
         r_t_sq = (1.0 - t) ** 2 / (t ** 2 + (1.0 - t) ** 2)
+        # Score-to-vector-field scale from Algorithm 1, line 8. Floored to keep
+        # the first integration step finite.
+        vf_scale = (1.0 - t) / jnp.maximum(t, 0.1)
 
         def _mu(x_t_flat: jax.Array):
             """Tweedie estimate of the clean sample for a single x_t.
@@ -99,13 +117,15 @@ def generate_pigdm(
             g_val = _g(mu)
             A = jax.jacobian(_g)(mu)
             m = g_val.shape[0]
-            # Solve (r_t^2 A A^T + eps I) z = g, then form A^T z.
+            # Solve (r_t^2 A A^T + eps I) z = g, then form A^T z. With our
+            # convention g_val = A mu - y, so -A^T z = A^T (...)^{-1} (y - A mu)
+            # which is the paper's gradient direction at mu (Eq. 15).
             AAT = A @ A.T
             z = jnp.linalg.solve(r_t_sq * AAT + eps_reg * jnp.eye(m), g_val)
-            grad_at_mu = -A.T @ z  # gradient of log p(y | x_t) at mu
+            grad_at_mu = -A.T @ z
             # Push the gradient back to x_t via J^T = (d mu / d x_t)^T.
             (grad_at_xt,) = vjp_mu(grad_at_mu)
-            return v_flat + guidance_scale * grad_at_xt
+            return v_flat + guidance_scale * vf_scale * grad_at_xt
 
         x_dot_flat = jax.vmap(_single)(x_flat)
         return x_dot_flat.reshape(x.shape)
