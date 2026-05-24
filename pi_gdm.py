@@ -46,19 +46,6 @@ def generate_pigdm(
     no Jacobians are formed explicitly except the small ``m x n`` constraint
     Jacobian needed to build ``A A^T``.
 
-    Deviations from the paper (all engineering, not algorithmic):
-
-    * The paper uses simple Euler integration starting at ``t = 0.2`` with a
-      warmstart ``x_{0.2} = 0.2 y + 0.8 eps``; we use adaptive ``Dopri5`` from
-      ``t = 0`` with pure noise, since for a general nonlinear constraint
-      there is no obvious analogue of the linear warmstart.
-    * We use ``eps_reg I`` in place of ``sigma_y^2 I`` since we target the
-      noise-free constraint ``g(x) = 0``; ``eps_reg`` then doubles as
-      Tikhonov regularisation when ``r_t^2 A A^T`` becomes singular as
-      ``t -> 1``.
-    * ``t`` is floored by ``1e-3`` in the ``(1 - t) / t`` factor to keep the
-      first integration step finite.
-
     Args:
         model: Trained flow model xdot = v(x, t). Must have a ``data_shape``
             attribute.
@@ -134,15 +121,13 @@ def generate_pigdm(
 
     solution = diffrax.diffeqsolve(
         diffrax.ODETerm(_ode_fn),
-        diffrax.Dopri5(),
+        diffrax.Midpoint(),
         t0=0.0,
         t1=1.0,
         dt0=dt,
         y0=x_init,
         saveat=diffrax.SaveAt(ts=jnp.arange(dt, 1.0, dt), t1=True),
-        stepsize_controller=diffrax.PIDController(
-            rtol=1e-3, atol=1e-3, dtmin=1e-4, dtmax=0.1
-        ),
+        stepsize_controller=diffrax.ConstantStepSize(),
     )
     print(solution.stats["num_steps"], "steps taken")
     xs = solution.ys
