@@ -69,6 +69,7 @@ def generate_constrained(
     seed: int = 0,
     penalty_weight: float = 5.0,
     rescale_factor: float = 1.0,
+    rescale_exponent: float = 2.0,
 ) -> Tuple[jax.Array, jax.Array]:
     """Generate samples from a trained flow model subject to g(x) = 0.
 
@@ -89,6 +90,7 @@ def generate_constrained(
         rescale_factor: Factor by which to rescale the time for the Lagrange
             multiplier flow. This can help enforce the constraint more strictly
             but leads to a stiffer ODE.
+        rescale_exponent: Exponent for the rescaling factor (p).
 
     Returns:
         x: Final generated samples of shape ``(num_samples, *data_shape)``.
@@ -119,7 +121,7 @@ def generate_constrained(
 
         g, correction = jax.vmap(_vjp)(x_flat, lmbda)
         x_dot = (v_flat - correction).reshape(x.shape)
-        lmbda_dot = rescale_factor * g / (1 - t + 1e-6) ** 2
+        lmbda_dot = rescale_factor * g / (1 - t + 1e-6) ** rescale_exponent
 
         return x_dot, lmbda_dot
 
