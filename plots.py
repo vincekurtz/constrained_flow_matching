@@ -292,7 +292,7 @@ def plot_violation_vs_penalty(
                     rescale_exponent=exp_val,
                     solver=diffrax.Dopri5(),
                     stepsize_controller=diffrax.PIDController(
-                        rtol=1e-5, atol=1e-5, dtmin=1e-4
+                        rtol=1e-5, atol=1e-5, dtmin=1e-5,
                     ),
                 )
                 violations.append(
@@ -313,22 +313,18 @@ def plot_violation_vs_penalty(
         results["penalties"],
         results["exp1"],
         "o-",
-        label="rescale_exponent = 1",
+        label="p = 1",
     )
     ax.plot(
         results["penalties"],
         results["exp2"],
         "s-",
-        label="rescale_exponent = 2",
+        label="p = 2",
     )
     ax.set_xscale("log")
     ax.set_yscale("log")
-    ax.set_xlabel("penalty weight")
-    ax.set_ylabel("mean |g(x)|")
-    ax.set_title(
-        f"ours: violation vs penalty (star, dt={results['dt']}, "
-        f"N={results['num_samples']})"
-    )
+    ax.set_xlabel("Penalty Weight (c)")
+    ax.set_ylabel("Mean Constraint Violation (|g(x)|)")
     ax.grid(which="both", linestyle=":", alpha=0.5)
     ax.legend()
     fig.tight_layout()
