@@ -24,7 +24,7 @@ def generate_pigdm(
     constraint_fn: Callable[[jax.Array], jax.Array],
     num_samples: int = 1000,
     dt: float = 0.01,
-    seed: int = 0,
+    rng: jax.Array = None,
     guidance_scale: float = 1.0,
     eps_reg: float = 1e-4,
 ) -> Tuple[jax.Array, jax.Array]:
@@ -57,7 +57,8 @@ def generate_pigdm(
             inverse problem this is ``g(x) = A x - y``.
         num_samples: Number of samples to generate.
         dt: Step size hint for the adaptive integrator.
-        seed: Random seed for the initial noise.
+        rng: PRNG key for the initial noise. Defaults to ``jax.random.key(0)``
+            when not provided.
         guidance_scale: Extra multiplicative weight on the PiGDM correction;
             ``1.0`` matches Algorithm 1 (``gamma_t = 1`` for OT-ODE).
         eps_reg: Tikhonov regulariser on ``r_t^2 A A^T`` (substitutes for
@@ -67,7 +68,8 @@ def generate_pigdm(
         x: Final generated samples of shape ``(num_samples, *data_shape)``.
         xs: Trajectories of shape ``(num_steps, num_samples, *data_shape)``.
     """
-    rng = jax.random.key(seed)
+    if rng is None:
+        rng = jax.random.key(0)
     data_shape = model.data_shape
 
     def _g(x_flat: jax.Array) -> jax.Array:

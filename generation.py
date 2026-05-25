@@ -64,7 +64,7 @@ def generate_constrained(
     constraint_fn: Callable[[jax.Array], jax.Array],
     num_samples: int = 1000,
     dt: float = 0.01,
-    seed: int = 0,
+    rng: jax.Array = None,
     penalty_weight: float = 5.0,
     rescale_factor: float = 1.0,
     rescale_exponent: float = 2.0,
@@ -82,7 +82,8 @@ def generate_constrained(
         num_samples: Number of samples to generate.
         dt: Step size used for solution output times between ``t=0`` and
             ``t=1``.
-        seed: Random seed for the initial noise.
+        rng: PRNG key for the initial noise. Defaults to ``jax.random.key(0)``
+            when not provided.
         penalty_weight: Strength of the quadratic penalty pulling samples
             toward the constraint manifold.
         rescale_factor: Factor by which to rescale the time for the Lagrange
@@ -94,7 +95,8 @@ def generate_constrained(
         x: Final generated samples of shape ``(num_samples, *data_shape)``.
         xs: Trajectories of shape ``(num_steps, num_samples, *data_shape)``.
     """
-    rng = jax.random.key(seed)
+    if rng is None:
+        rng = jax.random.key(0)
     data_shape = model.data_shape
 
     def _g(x):

@@ -37,9 +37,9 @@ def generate_pcfm(
     constraint_fn: Callable[[jax.Array], jax.Array],
     num_samples: int = 1000,
     num_steps: int = 100,
-    seed: int = 0,
-    penalty_weight: float = 0.0,
-    num_correction_iters: int = 5,
+    rng: jax.Array = None,
+    penalty_weight: float = 0.1,
+    num_correction_iters: int = 10,
     correction_lr: float = 0.1,
     num_final_projection_iters: int = 20,
     eps_reg: float = 1e-10,
@@ -58,7 +58,8 @@ def generate_pcfm(
         num_samples: Number of samples to generate.
         num_steps: Number of outer integration steps ``N`` (paper default
             100-200 for PDE benchmarks).
-        seed: Random seed for the initial noise.
+        rng: PRNG key for the initial noise. Defaults to ``jax.random.key(0)``
+            when not provided.
         penalty_weight: Weight ``lambda`` on the relaxed-correction penalty.
             The paper notes ``lambda = 0`` is appropriate for linear
             constraints (the projection alone suffices).
@@ -75,7 +76,8 @@ def generate_pcfm(
             spanning ``t = 0`` (initial noise) to ``t = 1`` (post-projection
             final sample).
     """
-    rng = jax.random.key(seed)
+    if rng is None:
+        rng = jax.random.key(0)
     data_shape = model.data_shape
     flat_dim = math.prod(data_shape)
     dtau = 1.0 / num_steps

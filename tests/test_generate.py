@@ -1,3 +1,4 @@
+import jax
 import jax.numpy as jnp
 import pytest
 from flax import nnx
@@ -166,7 +167,7 @@ def test_constrained_deterministic(model_2d, identity_normalizer):
         constraint_fn=unit_circle_constraint,
         num_samples=10,
         dt=0.1,
-        seed=7,
+        rng=jax.random.key(7),
         penalty_weight=1.0,
         rescale_factor=1.0,
     )
