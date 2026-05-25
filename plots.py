@@ -25,7 +25,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from datasets.mnist import MNISTDataset
-from datasets.star import StarDataset
 from generation import (
     generate,
     generate_constrained,
@@ -580,44 +579,57 @@ def plot_inequality_star(
     if regenerate or not data_file.exists():
         print("[inequality_star] regenerating raw data ...")
         model, normalizer = _load_model("star")
+        x_unconstrained, _ = generate(
+            model, normalizer, num_samples=num_samples, dt=0.01
+        )
         x, _ = generate_inequality_constrained(
             model,
             normalizer,
             _right_half_constraint,
             num_samples=num_samples,
             dt=0.01,
-            penalty_weight=10.0,
+            penalty_weight=20.0,
             rescale_factor=1.0,
         )
         with open(data_file, "wb") as f:
-            pickle.dump({"x": np.asarray(x)}, f)
+            pickle.dump(
+                {"x": np.asarray(x), "x_unc": np.asarray(x_unconstrained)}, f
+            )
 
     with open(data_file, "rb") as f:
-        x = pickle.load(f)["x"]
-
-    dataset = StarDataset(num_samples=1024)
-    train = np.asarray(dataset.data)
+        data = pickle.load(f)
+    x = data["x"]
+    x_unc = data.get("x_unc")
 
     fig, ax = plt.subplots(figsize=(5, 5))
     ax.axvspan(
-        -2, 0, color="lightcoral", alpha=0.15, label="forbidden (x[0] <= 0)"
+        -2, 0, color="lightcoral", alpha=0.15, label="Forbidden (x[0] <= 0)"
     )
+    if x_unc is not None:
+        ax.scatter(
+            x_unc[:, 0],
+            x_unc[:, 1],
+            s=15,
+            alpha=0.3,
+            color="lightgray",
+            label="Unconstrained Samples",
+        )
     ax.scatter(
-        train[:, 0],
-        train[:, 1],
-        s=4,
-        alpha=0.25,
-        color="lightgray",
-        label="training data",
+        x[:, 0],
+        x[:, 1],
+        s=15,
+        alpha=0.6,
+        color="C3",
+        label="Constrained Samples",
     )
-    ax.scatter(x[:, 0], x[:, 1], s=4, alpha=0.6, color="C3", label="generated")
     ax.axvline(0, color="k", linestyle="--", alpha=0.5)
-    ax.set_xlim(-2, 2)
-    ax.set_ylim(-2, 2)
+    ax.set_xlim(-1.5, 1.5)
+    ax.set_ylim(-1.5, 1.5)
+    ax.set_xticklabels([])
+    ax.set_yticklabels([])
     ax.set_aspect("equal")
     ax.grid(linestyle=":", alpha=0.4)
     ax.legend(loc="upper right", fontsize=8)
-    ax.set_title("Star: inequality-constrained samples (x[0] > 0)")
     fig.tight_layout()
     out = FIG_DIR / "inequality_star.png"
     fig.savefig(out, dpi=150)
