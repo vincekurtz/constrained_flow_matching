@@ -14,6 +14,7 @@ Usage examples:
 """
 
 import argparse
+import json
 import time
 from pathlib import Path
 
@@ -135,6 +136,9 @@ def main():
                         help="Base seed; samples use jax.random.split off it.")
     parser.add_argument("--save-path", type=str, default=None,
                         help="Override the default data/<example>_model.pkl.")
+    parser.add_argument("--out", type=str, default=None,
+                        help="If set, save per-sample timings, violations, "
+                             "and hyperparameters as JSON for later plotting.")
 
     # Diffrax step size (used by pd and pigdm).
     parser.add_argument("--dt", type=float, default=0.01)
@@ -211,6 +215,22 @@ def main():
           f"max={float(times.max()) * 1000:6.2f}")
     print(f"  violation:        mean={float(violations.mean()):.3e}  "
           f"max={float(violations.max()):.3e}")
+
+    if args.out is not None:
+        out_path = Path(args.out)
+        out_path.parent.mkdir(parents=True, exist_ok=True)
+        record = {
+            "method": args.method,
+            "example": args.example,
+            "num_samples": args.num_samples,
+            "compile_time_s": compile_time,
+            "times_s": per_sample_times,
+            "violations": per_sample_violations,
+            "params": vars(args),
+        }
+        with open(out_path, "w") as f:
+            json.dump(record, f, indent=2)
+        print(f"\nSaved per-sample results to {out_path}")
 
 
 if __name__ == "__main__":
