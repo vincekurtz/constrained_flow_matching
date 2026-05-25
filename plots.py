@@ -489,9 +489,10 @@ def plot_constrained_star(
 
 def plot_constrained_mnist(
     regenerate: bool = False,
-    num_samples: int = 5,
+    num_samples: int = 25,
+    grid: int = 5,
 ):
-    """One row per method, columns are inpainted samples; first column is reference."""
+    """Reference image once (top-left); 5x5 grids per method + unconstrained."""
     _ensure_dirs()
     data_file = DATA_DIR / "constrained_mnist.pkl"
 
@@ -500,6 +501,10 @@ def plot_constrained_mnist(
         model, normalizer = _load_model("mnist")
         inpaint, reference, mask = _build_mnist_inpaint()
         data = {"reference": np.asarray(reference), "mask": np.asarray(mask)}
+        x, _ = generate(
+            model, normalizer, num_samples=num_samples, dt=0.01
+        )
+        data["unconstrained"] = np.asarray(jnp.clip(x, 0.0, 1.0))
         x, _, _ = generate_constrained(
             model,
             normalizer,
@@ -534,31 +539,44 @@ def plot_constrained_mnist(
     with open(data_file, "rb") as f:
         data = pickle.load(f)
 
-    n = data["ours"].shape[0]
-    fig, axes = plt.subplots(
-        len(METHODS), n + 1, figsize=(n + 1, len(METHODS) + 0.4)
-    )
     ref = data["reference"]
     mask = data["mask"]
     masked_ref = np.where(mask, ref, 0.5 * ref)
-    for row, method in enumerate(METHODS):
-        ax = axes[row, 0]
-        ax.imshow(masked_ref.squeeze(-1), cmap="gray", vmin=0, vmax=1)
-        ax.set_xticks([])
-        ax.set_yticks([])
-        ax.set_ylabel(method, fontsize=10)
-        if row == 0:
-            ax.set_title("ref", fontsize=9)
-        for col in range(n):
-            ax = axes[row, col + 1]
-            ax.imshow(
-                data[method][col].squeeze(-1), cmap="gray", vmin=0, vmax=1
-            )
-            ax.axis("off")
-    fig.suptitle("Inpainted MNIST (top half fixed)", fontsize=11)
-    fig.tight_layout()
+
+    panels = [
+        ("unconstrained", "Unconstrained"),
+        *[(m, METHOD_NAMES[m]) for m in METHODS],
+    ]
+
+    # Layout: narrow reference column + one panel per method.
+    fig = plt.figure(figsize=(16, 5))
+    subfigs = fig.subfigures(
+        1, 1 + len(panels),
+        width_ratios=[1] + [grid] * len(panels),
+        wspace=0.06,
+    )
+
+    # Reference image (top-left, shown once).
+    ax_ref = subfigs[0].subplots(1, 1)
+    ax_ref.imshow(masked_ref.squeeze(-1), cmap="gray", vmin=0, vmax=1)
+    ax_ref.set_title("Reference", fontsize=10)
+    ax_ref.axis("off")
+
+    # One subfigure per panel, each with a grid x grid mosaic.
+    for sf, (key, title) in zip(subfigs[1:], panels):
+        sf.set_facecolor("#f0f0f0")
+        sf.suptitle(title, fontsize=10)
+        axes = np.asarray(sf.subplots(grid, grid))
+        for r in range(grid):
+            for c in range(grid):
+                axes[r, c].imshow(
+                    data[key][r * grid + c].squeeze(-1),
+                    cmap="gray", vmin=0, vmax=1,
+                )
+                axes[r, c].axis("off")
+
     out = FIG_DIR / "constrained_mnist.png"
-    fig.savefig(out, dpi=150)
+    fig.savefig(out, dpi=150, bbox_inches="tight")
     print(f"[constrained_mnist] wrote {out}")
     plt.close(fig)
 
