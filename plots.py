@@ -40,6 +40,11 @@ MODEL_DIR = Path("data")
 
 METHODS = ("ours", "pigdm", "pcfm")
 METHOD_COLORS = {"ours": "C0", "pigdm": "C1", "pcfm": "C2"}
+METHOD_NAMES = {
+    "ours": "Dual Flow (ours)",
+    "pigdm": "Pseudoinverse Guidance",
+    "pcfm": "Physics-Constrained",
+}
 
 # Set uniform font size and serif font style
 plt.rcParams.update({
@@ -361,31 +366,36 @@ def plot_constrained_star(
 
         ax = axes[0, col]
         ax.plot(np.cos(theta), np.sin(theta), "k--", alpha=0.4)
-        ax.scatter(x[:, 0], x[:, 1], s=4, alpha=0.5,
+        ax.scatter(x[:, 0], x[:, 1], alpha=0.5, s=8,
                    color=METHOD_COLORS[method])
         ax.set_xlim(-2, 2)
         ax.set_ylim(-2, 2)
         ax.set_aspect("equal")
-        ax.set_title(method)
+        ax.set_title(METHOD_NAMES[method])
         ax.grid(linestyle=":", alpha=0.4)
 
         ax = axes[1, col]
         ax.plot(np.cos(theta), np.sin(theta), "k--", alpha=0.4)
         n_show = min(num_paths, x.shape[0])
         for i in range(n_show):
-            ax.plot(xs[:, i, 0], xs[:, i, 1], lw=0.6, alpha=0.7,
+            ax.plot(xs[:, i, 0], xs[:, i, 1], lw=1.0, alpha=0.7,
                     color=METHOD_COLORS[method])
         ax.scatter(xs[0, :n_show, 0], xs[0, :n_show, 1],
-                   s=8, color="k", alpha=0.5, label="start")
+                   s=15, color="k", alpha=0.5, label="start")
         ax.scatter(xs[-1, :n_show, 0], xs[-1, :n_show, 1],
-                   s=8, color=METHOD_COLORS[method], label="end")
+                   s=15, color=METHOD_COLORS[method], label="end")
         ax.set_xlim(-2, 2)
         ax.set_ylim(-2, 2)
+
+        # Leave grid lines, but remove ticks and labels for the trajectory subplots.
+        ax.set_xticklabels([])
+        ax.set_yticklabels([])
+
+
         ax.set_aspect("equal")
         ax.grid(linestyle=":", alpha=0.4)
-    axes[0, 0].set_ylabel("samples")
-    axes[1, 0].set_ylabel("paths")
-    fig.suptitle("Constrained star: samples and flow paths")
+    axes[0, 0].set_ylabel("Generated Samples")
+    axes[1, 0].set_ylabel("Flow Paths")
     fig.tight_layout()
     out = FIG_DIR / "constrained_star.png"
     fig.savefig(out, dpi=150)
