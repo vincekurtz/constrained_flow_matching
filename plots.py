@@ -545,28 +545,37 @@ def plot_constrained_mnist(
 
     panels = [
         ("unconstrained", "Unconstrained"),
-        *[(m, METHOD_NAMES[m]) for m in METHODS],
+        ("ours", METHOD_NAMES["ours"]),
+        ("pigdm", METHOD_NAMES["pigdm"]),
+        ("pcfm", METHOD_NAMES["pcfm"]),
     ]
 
-    # Layout: narrow reference column + one panel per method.
-    fig = plt.figure(figsize=(16, 5))
-    subfigs = fig.subfigures(
-        1, 1 + len(panels),
-        width_ratios=[1] + [grid] * len(panels),
-        wspace=0.06,
+    # Layout: narrow reference column on the left + 2x2 grid of panels.
+    fig = plt.figure(figsize=(12, 9))
+    left_fig, right_fig = fig.subfigures(
+        1, 2, width_ratios=[1, 2 * grid], wspace=0.06
     )
 
-    # Reference image (top-left, shown once).
-    ax_ref = subfigs[0].subplots(1, 1)
+    # Reference image (left column, centred vertically).
+    ax_ref = left_fig.subplots(1, 1)
     ax_ref.imshow(masked_ref.squeeze(-1), cmap="gray", vmin=0, vmax=1)
-    ax_ref.set_title("Reference", fontsize=10)
+    ax_ref.set_title("Reference")
     ax_ref.axis("off")
 
-    # One subfigure per panel, each with a grid x grid mosaic.
-    for sf, (key, title) in zip(subfigs[1:], panels):
+    # 2x2 grid of sample panels with consistent margins.
+    m = 0.0   # equal margin fraction on all four sides of the image grid
+    title_h = 0.10  # fraction of panel height reserved for the title above
+    panel_figs = right_fig.subfigures(2, 2, wspace=0.08, hspace=0.08)
+    for i, (key, title) in enumerate(panels):
+        sf = panel_figs[i // 2, i % 2]
         sf.set_facecolor("#f0f0f0")
-        sf.suptitle(title, fontsize=10)
+        sf.text(0.5, 0.98, title, ha="center", va="top",
+                transform=sf.transSubfigure)
         axes = np.asarray(sf.subplots(grid, grid))
+        sf.subplots_adjust(
+            left=m, right=1 - m, bottom=m, top=1 - m - title_h,
+            hspace=0.02, wspace=0.02,
+        )
         for r in range(grid):
             for c in range(grid):
                 axes[r, c].imshow(
