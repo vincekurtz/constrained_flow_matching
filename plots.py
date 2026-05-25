@@ -41,6 +41,12 @@ MODEL_DIR = Path("data")
 METHODS = ("ours", "pigdm", "pcfm")
 METHOD_COLORS = {"ours": "C0", "pigdm": "C1", "pcfm": "C2"}
 
+# Set uniform font size and serif font style
+plt.rcParams.update({
+    "font.size": 14,
+    "font.family": "serif",
+})
+
 
 def _ensure_dirs() -> None:
     DATA_DIR.mkdir(parents=True, exist_ok=True)
@@ -293,20 +299,12 @@ def plot_unconstrained_star(
     with open(data_file, "rb") as f:
         x = pickle.load(f)["x"]
 
-    dataset = StarDataset(num_samples=1024)
-    train = np.asarray(dataset.data)
-
     fig, ax = plt.subplots(figsize=(5, 5))
-    ax.scatter(train[:, 0], train[:, 1], s=4, alpha=0.3,
-               color="lightgray", label="training data")
-    ax.scatter(x[:, 0], x[:, 1], s=4, alpha=0.6, color="C0",
-               label="generated")
-    ax.set_xlim(-2, 2)
-    ax.set_ylim(-2, 2)
+    ax.scatter(x[:, 0], x[:, 1], alpha=0.6, color="C0", label="generated")
+    ax.set_xlim(-1.5, 1.5)
+    ax.set_ylim(-1.5, 1.5)
     ax.set_aspect("equal")
     ax.grid(linestyle=":", alpha=0.4)
-    ax.legend(loc="upper right", fontsize=8)
-    ax.set_title(f"Star: unconstrained samples (N={x.shape[0]})")
     fig.tight_layout()
     out = FIG_DIR / "unconstrained_star.png"
     fig.savefig(out, dpi=150)
