@@ -16,6 +16,7 @@ import json
 import pickle
 import time
 from pathlib import Path
+import diffrax
 
 import cloudpickle
 import jax
@@ -47,10 +48,12 @@ METHOD_NAMES = {
 }
 
 # Set uniform font size and serif font style
-plt.rcParams.update({
-    "font.size": 14,
-    "font.family": "serif",
-})
+plt.rcParams.update(
+    {
+        "font.size": 14,
+        "font.family": "serif",
+    }
+)
 
 
 def _ensure_dirs() -> None:
@@ -66,8 +69,9 @@ def _load_model(example: str):
 
 # ---- constraints ---------------------------------------------------------
 
+
 def _unit_circle_constraint(x):
-    return jnp.sum(x ** 2, axis=-1) - 1.0
+    return jnp.sum(x**2, axis=-1) - 1.0
 
 
 def _right_half_constraint(x):
@@ -103,37 +107,63 @@ def _get_constraint(example):
 
 # ---- per-sample timing ---------------------------------------------------
 
+
 def _make_single_sample_fn(
-    method, example, *, dt, num_steps,
-    penalty_weight=5.0, rescale_factor=1.0, rescale_exponent=2.0,
-    guidance_scale=1.0, eps_reg=1e-4,
-    pcfm_penalty_weight=0.0, num_final_projection_iters=20,
+    method,
+    example,
+    *,
+    dt,
+    num_steps,
+    penalty_weight=5.0,
+    rescale_factor=1.0,
+    rescale_exponent=2.0,
+    guidance_scale=1.0,
+    eps_reg=1e-4,
+    pcfm_penalty_weight=0.0,
+    num_final_projection_iters=20,
 ):
     model, normalizer = _load_model(example)
     constraint_fn, _ = _get_constraint(example)
 
     if method == "ours":
+
         def _gen(rng):
             x, _ = generate_constrained(
-                model, normalizer, constraint_fn, num_samples=1,
-                dt=dt, rng=rng, penalty_weight=penalty_weight,
+                model,
+                normalizer,
+                constraint_fn,
+                num_samples=1,
+                dt=dt,
+                rng=rng,
+                penalty_weight=penalty_weight,
                 rescale_factor=rescale_factor,
                 rescale_exponent=rescale_exponent,
             )
             return x[0]
     elif method == "pigdm":
+
         def _gen(rng):
             x, _ = generate_pigdm(
-                model, normalizer, constraint_fn, num_samples=1,
-                dt=dt, rng=rng,
-                guidance_scale=guidance_scale, eps_reg=eps_reg,
+                model,
+                normalizer,
+                constraint_fn,
+                num_samples=1,
+                dt=dt,
+                rng=rng,
+                guidance_scale=guidance_scale,
+                eps_reg=eps_reg,
             )
             return x[0]
     elif method == "pcfm":
+
         def _gen(rng):
             x, _ = generate_pcfm(
-                model, normalizer, constraint_fn, num_samples=1,
-                num_steps=num_steps, rng=rng,
+                model,
+                normalizer,
+                constraint_fn,
+                num_samples=1,
+                num_steps=num_steps,
+                rng=rng,
                 penalty_weight=pcfm_penalty_weight,
                 num_final_projection_iters=num_final_projection_iters,
             )
@@ -146,9 +176,7 @@ def _make_single_sample_fn(
 
 def _time_method(method, example, num_samples, *, dt, num_steps, seed=0):
     """JIT a single-sample generator and time ``num_samples`` invocations."""
-    gen = _make_single_sample_fn(
-        method, example, dt=dt, num_steps=num_steps
-    )
+    gen = _make_single_sample_fn(method, example, dt=dt, num_steps=num_steps)
     rngs = jax.random.split(jax.random.key(seed), num_samples)
     # Warm-up (compile + first call).
     jax.block_until_ready(gen(rngs[0]))
@@ -164,6 +192,7 @@ def _time_method(method, example, num_samples, *, dt, num_steps, seed=0):
 # ============================================================================
 # Plot 1: generation times
 # ============================================================================
+
 
 def plot_generation_times(regenerate: bool = False, num_samples: int = 20):
     """Box plots: per-sample generation time for 2 examples x 3 methods x 2 step sizes."""
@@ -181,8 +210,11 @@ def plot_generation_times(regenerate: bool = False, num_samples: int = 20):
                 for label, dt, n_steps in configs:
                     print(f"  {example} / {method} / {label}")
                     times = _time_method(
-                        method, example, num_samples,
-                        dt=dt, num_steps=n_steps,
+                        method,
+                        example,
+                        num_samples,
+                        dt=dt,
+                        num_steps=n_steps,
                     )
                     results[example][method][label] = times
         with open(data_file, "w") as f:
@@ -204,7 +236,10 @@ def plot_generation_times(regenerate: bool = False, num_samples: int = 20):
                 x += 1.0
             x += 0.5  # gap between methods
         bp = ax.boxplot(
-            data, positions=positions, widths=0.7, patch_artist=True,
+            data,
+            positions=positions,
+            widths=0.7,
+            patch_artist=True,
             medianprops={"color": "k"},
         )
         for patch, c in zip(bp["boxes"], colors):
@@ -228,8 +263,11 @@ def plot_generation_times(regenerate: bool = False, num_samples: int = 20):
 # Plot 2: constraint violation vs penalty weight
 # ============================================================================
 
+
 def plot_violation_vs_penalty(
-    regenerate: bool = False, num_samples: int = 200, dt: float = 0.005,
+    regenerate: bool = False,
+    num_samples: int = 200,
+    dt: float = 0.01,
 ):
     """Mean constraint violation vs penalty weight for ours, two rescale exponents."""
     _ensure_dirs()
@@ -239,20 +277,29 @@ def plot_violation_vs_penalty(
         print("[violation_vs_penalty] regenerating raw data ...")
         model, normalizer = _load_model("star")
         penalties = [0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0]
-        results = {"penalties": penalties, "dt": dt,
-                   "num_samples": num_samples}
+        results = {"penalties": penalties, "dt": dt, "num_samples": num_samples}
         for exp_val, key in ((1.0, "exp1"), (2.0, "exp2")):
             violations = []
             for pw in penalties:
-                print(f"  exp={exp_val}, penalty={pw}")
                 x, _ = generate_constrained(
-                    model, normalizer, _unit_circle_constraint,
-                    num_samples=num_samples, dt=dt,
-                    penalty_weight=pw, rescale_factor=1.0,
+                    model,
+                    normalizer,
+                    _unit_circle_constraint,
+                    num_samples=num_samples,
+                    dt=dt,
+                    penalty_weight=pw,
+                    rescale_factor=1.0,
                     rescale_exponent=exp_val,
+                    solver=diffrax.Dopri5(),
+                    stepsize_controller=diffrax.PIDController(
+                        rtol=1e-5, atol=1e-5, dtmin=1e-4
+                    ),
                 )
                 violations.append(
                     float(jnp.mean(jnp.abs(_unit_circle_constraint(x))))
+                )
+                print(
+                    f"  exp={exp_val}, penalty={pw}, violation={violations[-1]}"
                 )
             results[key] = violations
         with open(data_file, "w") as f:
@@ -262,10 +309,18 @@ def plot_violation_vs_penalty(
         results = json.load(f)
 
     fig, ax = plt.subplots(figsize=(6, 4))
-    ax.plot(results["penalties"], results["exp1"], "o-",
-            label="rescale_exponent = 1")
-    ax.plot(results["penalties"], results["exp2"], "s-",
-            label="rescale_exponent = 2")
+    ax.plot(
+        results["penalties"],
+        results["exp1"],
+        "o-",
+        label="rescale_exponent = 1",
+    )
+    ax.plot(
+        results["penalties"],
+        results["exp2"],
+        "s-",
+        label="rescale_exponent = 2",
+    )
     ax.set_xscale("log")
     ax.set_yscale("log")
     ax.set_xlabel("penalty weight")
@@ -287,8 +342,10 @@ def plot_violation_vs_penalty(
 # Plot 3: unconstrained star
 # ============================================================================
 
+
 def plot_unconstrained_star(
-    regenerate: bool = False, num_samples: int = 2000,
+    regenerate: bool = False,
+    num_samples: int = 2000,
 ):
     """Scatter of unconstrained star samples, with training data behind."""
     _ensure_dirs()
@@ -321,6 +378,7 @@ def plot_unconstrained_star(
 # Plot 4: constrained star + representative trajectories
 # ============================================================================
 
+
 def plot_constrained_star(
     regenerate: bool = False,
     num_samples: int = 500,
@@ -335,20 +393,31 @@ def plot_constrained_star(
         model, normalizer = _load_model("star")
         data = {}
         x, xs = generate_constrained(
-            model, normalizer, _unit_circle_constraint,
-            num_samples=num_samples, dt=0.01,
-            penalty_weight=5.0, rescale_factor=1.0,
+            model,
+            normalizer,
+            _unit_circle_constraint,
+            num_samples=num_samples,
+            dt=0.01,
+            penalty_weight=5.0,
+            rescale_factor=1.0,
         )
         data["ours"] = {"x": np.asarray(x), "xs": np.asarray(xs)}
         x, xs = generate_pigdm(
-            model, normalizer, _unit_circle_constraint,
-            num_samples=num_samples, dt=0.01,
-            guidance_scale=1.0, eps_reg=1e-4,
+            model,
+            normalizer,
+            _unit_circle_constraint,
+            num_samples=num_samples,
+            dt=0.01,
+            guidance_scale=1.0,
+            eps_reg=1e-4,
         )
         data["pigdm"] = {"x": np.asarray(x), "xs": np.asarray(xs)}
         x, xs = generate_pcfm(
-            model, normalizer, _unit_circle_constraint,
-            num_samples=num_samples, num_steps=100,
+            model,
+            normalizer,
+            _unit_circle_constraint,
+            num_samples=num_samples,
+            num_steps=100,
         )
         data["pcfm"] = {"x": np.asarray(x), "xs": np.asarray(xs)}
         with open(data_file, "wb") as f:
@@ -358,16 +427,16 @@ def plot_constrained_star(
         data = pickle.load(f)
 
     theta = np.linspace(0, 2 * np.pi, 200)
-    fig, axes = plt.subplots(2, 3, figsize=(12, 8),
-                             sharex=True, sharey=True)
+    fig, axes = plt.subplots(2, 3, figsize=(12, 8), sharex=True, sharey=True)
     for col, method in enumerate(METHODS):
         d = data[method]
         x, xs = d["x"], d["xs"]
 
         ax = axes[0, col]
         ax.plot(np.cos(theta), np.sin(theta), "k--", alpha=0.4)
-        ax.scatter(x[:, 0], x[:, 1], alpha=0.5, s=8,
-                   color=METHOD_COLORS[method])
+        ax.scatter(
+            x[:, 0], x[:, 1], alpha=0.5, s=8, color=METHOD_COLORS[method]
+        )
         ax.set_xlim(-2, 2)
         ax.set_ylim(-2, 2)
         ax.set_aspect("equal")
@@ -378,19 +447,34 @@ def plot_constrained_star(
         ax.plot(np.cos(theta), np.sin(theta), "k--", alpha=0.4)
         n_show = min(num_paths, x.shape[0])
         for i in range(n_show):
-            ax.plot(xs[:, i, 0], xs[:, i, 1], lw=1.0, alpha=0.7,
-                    color=METHOD_COLORS[method])
-        ax.scatter(xs[0, :n_show, 0], xs[0, :n_show, 1],
-                   s=15, color="k", alpha=0.5, label="start")
-        ax.scatter(xs[-1, :n_show, 0], xs[-1, :n_show, 1],
-                   s=15, color=METHOD_COLORS[method], label="end")
+            ax.plot(
+                xs[:, i, 0],
+                xs[:, i, 1],
+                lw=1.0,
+                alpha=0.7,
+                color=METHOD_COLORS[method],
+            )
+        ax.scatter(
+            xs[0, :n_show, 0],
+            xs[0, :n_show, 1],
+            s=15,
+            color="k",
+            alpha=0.5,
+            label="start",
+        )
+        ax.scatter(
+            xs[-1, :n_show, 0],
+            xs[-1, :n_show, 1],
+            s=15,
+            color=METHOD_COLORS[method],
+            label="end",
+        )
         ax.set_xlim(-2, 2)
         ax.set_ylim(-2, 2)
 
         # Leave grid lines, but remove ticks and labels for the trajectory subplots.
         ax.set_xticklabels([])
         ax.set_yticklabels([])
-
 
         ax.set_aspect("equal")
         ax.grid(linestyle=":", alpha=0.4)
@@ -407,8 +491,10 @@ def plot_constrained_star(
 # Plot 5: constrained MNIST inpainting
 # ============================================================================
 
+
 def plot_constrained_mnist(
-    regenerate: bool = False, num_samples: int = 5,
+    regenerate: bool = False,
+    num_samples: int = 5,
 ):
     """One row per method, columns are inpainted samples; first column is reference."""
     _ensure_dirs()
@@ -418,23 +504,33 @@ def plot_constrained_mnist(
         print("[constrained_mnist] regenerating raw data ...")
         model, normalizer = _load_model("mnist")
         inpaint, reference, mask = _build_mnist_inpaint()
-        data = {"reference": np.asarray(reference),
-                "mask": np.asarray(mask)}
+        data = {"reference": np.asarray(reference), "mask": np.asarray(mask)}
         x, _ = generate_constrained(
-            model, normalizer, inpaint,
-            num_samples=num_samples, dt=0.01,
-            penalty_weight=10.0, rescale_factor=1.0,
+            model,
+            normalizer,
+            inpaint,
+            num_samples=num_samples,
+            dt=0.01,
+            penalty_weight=10.0,
+            rescale_factor=1.0,
         )
         data["ours"] = np.asarray(jnp.clip(x, 0.0, 1.0))
         x, _ = generate_pigdm(
-            model, normalizer, inpaint,
-            num_samples=num_samples, dt=0.01,
-            guidance_scale=1.0, eps_reg=1e-4,
+            model,
+            normalizer,
+            inpaint,
+            num_samples=num_samples,
+            dt=0.01,
+            guidance_scale=1.0,
+            eps_reg=1e-4,
         )
         data["pigdm"] = np.asarray(jnp.clip(x, 0.0, 1.0))
         x, _ = generate_pcfm(
-            model, normalizer, inpaint,
-            num_samples=num_samples, num_steps=100,
+            model,
+            normalizer,
+            inpaint,
+            num_samples=num_samples,
+            num_steps=100,
         )
         data["pcfm"] = np.asarray(jnp.clip(x, 0.0, 1.0))
         with open(data_file, "wb") as f:
@@ -444,8 +540,9 @@ def plot_constrained_mnist(
         data = pickle.load(f)
 
     n = data["ours"].shape[0]
-    fig, axes = plt.subplots(len(METHODS), n + 1,
-                             figsize=(n + 1, len(METHODS) + 0.4))
+    fig, axes = plt.subplots(
+        len(METHODS), n + 1, figsize=(n + 1, len(METHODS) + 0.4)
+    )
     ref = data["reference"]
     mask = data["mask"]
     masked_ref = np.where(mask, ref, 0.5 * ref)
@@ -459,8 +556,9 @@ def plot_constrained_mnist(
             ax.set_title("ref", fontsize=9)
         for col in range(n):
             ax = axes[row, col + 1]
-            ax.imshow(data[method][col].squeeze(-1), cmap="gray",
-                      vmin=0, vmax=1)
+            ax.imshow(
+                data[method][col].squeeze(-1), cmap="gray", vmin=0, vmax=1
+            )
             ax.axis("off")
     fig.suptitle("Inpainted MNIST (top half fixed)", fontsize=11)
     fig.tight_layout()
@@ -474,8 +572,10 @@ def plot_constrained_mnist(
 # Plot 6: inequality-constrained star
 # ============================================================================
 
+
 def plot_inequality_star(
-    regenerate: bool = False, num_samples: int = 1000,
+    regenerate: bool = False,
+    num_samples: int = 1000,
 ):
     """Scatter of star samples constrained to x[0] > 0."""
     _ensure_dirs()
@@ -485,9 +585,13 @@ def plot_inequality_star(
         print("[inequality_star] regenerating raw data ...")
         model, normalizer = _load_model("star")
         x, _ = generate_inequality_constrained(
-            model, normalizer, _right_half_constraint,
-            num_samples=num_samples, dt=0.01,
-            penalty_weight=10.0, rescale_factor=1.0,
+            model,
+            normalizer,
+            _right_half_constraint,
+            num_samples=num_samples,
+            dt=0.01,
+            penalty_weight=10.0,
+            rescale_factor=1.0,
         )
         with open(data_file, "wb") as f:
             pickle.dump({"x": np.asarray(x)}, f)
@@ -499,12 +603,18 @@ def plot_inequality_star(
     train = np.asarray(dataset.data)
 
     fig, ax = plt.subplots(figsize=(5, 5))
-    ax.axvspan(-2, 0, color="lightcoral", alpha=0.15,
-               label="forbidden (x[0] <= 0)")
-    ax.scatter(train[:, 0], train[:, 1], s=4, alpha=0.25,
-               color="lightgray", label="training data")
-    ax.scatter(x[:, 0], x[:, 1], s=4, alpha=0.6, color="C3",
-               label="generated")
+    ax.axvspan(
+        -2, 0, color="lightcoral", alpha=0.15, label="forbidden (x[0] <= 0)"
+    )
+    ax.scatter(
+        train[:, 0],
+        train[:, 1],
+        s=4,
+        alpha=0.25,
+        color="lightgray",
+        label="training data",
+    )
+    ax.scatter(x[:, 0], x[:, 1], s=4, alpha=0.6, color="C3", label="generated")
     ax.axvline(0, color="k", linestyle="--", alpha=0.5)
     ax.set_xlim(-2, 2)
     ax.set_ylim(-2, 2)
@@ -536,11 +646,14 @@ PLOTS = {
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--plot", choices=list(PLOTS) + ["all"], default="all",
+        "--plot",
+        choices=list(PLOTS) + ["all"],
+        default="all",
         help="Which plot to make (or all).",
     )
     parser.add_argument(
-        "--regenerate", action="store_true",
+        "--regenerate",
+        action="store_true",
         help="Re-run the underlying generation/benchmark, overwriting cache.",
     )
     args = parser.parse_args()

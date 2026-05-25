@@ -80,7 +80,7 @@ if args.generate_constrained:
     )
 
     # Report constraint violation statistics.
-    g = unit_circle_constraint(x)
+    g = jnp.abs(unit_circle_constraint(x))
     print(f"Constraint violation: mean={g.mean()}, max={g.max()}")
 
     plot_2d(dataset, x, xs, plot_lims=(-2, 2))

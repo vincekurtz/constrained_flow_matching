@@ -14,6 +14,8 @@ def generate(
     num_samples: int = 1000,
     dt: float = 0.01,
     seed: int = 0,
+    solver: diffrax.AbstractSolver = diffrax.Midpoint(),
+    stepsize_controller: diffrax.AbstractStepSizeController = diffrax.ConstantStepSize(),
 ) -> Tuple[jax.Array, jax.Array]:
     """Generate samples from a trained flow-matching model.
 
@@ -25,35 +27,46 @@ def generate(
         normalizer: Normalizer used during training, applied in reverse to
             produced samples in the original data space.
         num_samples: Number of samples to generate.
-        dt: Initial step size hint for the adaptive integrator.
+        dt: Step size (or initial step size hint for adaptive controllers).
         seed: Random seed for the initial noise.
+        solver: diffrax solver to use. Defaults to ``Midpoint()``.
+        stepsize_controller: diffrax step-size controller. Defaults to
+            ``ConstantStepSize()``. Pass a ``PIDController`` for adaptive
+            error control.
 
     Returns:
         x: Final generated samples of shape (num_samples, *data_shape).
         xs: Full trajectories of shape (num_steps, num_samples, *data_shape).
+            Contains NaNs if integration fails.
     """
     rng = jax.random.key(seed)
     x_init = jax.random.normal(rng, (num_samples,) + model.data_shape)
+    save_ts = jnp.arange(dt, 1.0, dt)
 
     def _ode_fn(t, y, args):
         del args
         t_batch = jnp.full((y.shape[0],), t)
         return model(y, t_batch)
 
-    solution = diffrax.diffeqsolve(
-        diffrax.ODETerm(_ode_fn),
-        diffrax.Midpoint(),
-        t0=0.0,
-        t1=1.0,
-        dt0=dt,
-        y0=x_init,
-        saveat=diffrax.SaveAt(ts=jnp.arange(dt, 1.0, dt), t1=True),
-        stepsize_controller=diffrax.ConstantStepSize(),
-    )
-    xs = solution.ys
-    x = xs[-1]
-
-    print(solution.stats["num_steps"], "steps taken")
+    try:
+        solution = diffrax.diffeqsolve(
+            diffrax.ODETerm(_ode_fn),
+            solver,
+            t0=0.0,
+            t1=1.0,
+            dt0=dt,
+            y0=x_init,
+            saveat=diffrax.SaveAt(ts=save_ts, t0=True),
+            stepsize_controller=stepsize_controller,
+        )
+        xs = solution.ys
+        x = xs[-1]
+        print(solution.stats["num_steps"], "steps taken")
+    except Exception as e:
+        print(f"diffeqsolve failed: {e}")
+        nan = jnp.nan
+        x = jnp.full((num_samples,) + model.data_shape, nan)
+        xs = jnp.full((len(save_ts) + 1, num_samples) + model.data_shape, nan)
 
     return normalizer.unnormalize(x), normalizer.unnormalize(xs)
 
@@ -68,6 +81,10 @@ def generate_constrained(
     penalty_weight: float = 5.0,
     rescale_factor: float = 1.0,
     rescale_exponent: float = 2.0,
+    solver: diffrax.AbstractSolver = diffrax.Midpoint(),
+    stepsize_controller: diffrax.AbstractStepSizeController = (
+        diffrax.ConstantStepSize()
+    ),
 ) -> Tuple[jax.Array, jax.Array]:
     """Generate samples from a trained flow model subject to g(x) = 0.
 
@@ -80,8 +97,7 @@ def generate_constrained(
             *unnormalized* sample) whose zero-level set defines the constraint
             manifold.  May return a scalar or a 1-D array.
         num_samples: Number of samples to generate.
-        dt: Step size used for solution output times between ``t=0`` and
-            ``t=1``.
+        dt: Step size (or initial step size hint for adaptive controllers).
         rng: PRNG key for the initial noise. Defaults to ``jax.random.key(0)``
             when not provided.
         penalty_weight: Strength of the quadratic penalty pulling samples
@@ -90,10 +106,15 @@ def generate_constrained(
             multiplier flow. This can help enforce the constraint more strictly
             but leads to a stiffer ODE.
         rescale_exponent: Exponent for the rescaling factor (p).
+        solver: diffrax solver to use. Defaults to ``Midpoint()``.
+        stepsize_controller: diffrax step-size controller. Defaults to
+            ``ConstantStepSize()``. Pass a ``PIDController`` for adaptive
+            error control.
 
     Returns:
         x: Final generated samples of shape ``(num_samples, *data_shape)``.
         xs: Trajectories of shape ``(num_steps, num_samples, *data_shape)``.
+            Contains NaNs if integration fails.
     """
     if rng is None:
         rng = jax.random.key(0)
@@ -132,19 +153,27 @@ def generate_constrained(
     lmbda_init = 0.0 * jax.vmap(lambda xi: _g(xi.ravel()))(x_init)
 
     # Integrate the constrained flow ODE from t=0 to t=1.
-    solution = diffrax.diffeqsolve(
-        diffrax.ODETerm(_ode_fn),
-        diffrax.Midpoint(),
-        t0=0.0,
-        t1=1.0,
-        dt0=dt,
-        y0=(x_init, lmbda_init),
-        saveat=diffrax.SaveAt(ts=jnp.arange(dt, 1.0, dt), t0=True),
-        stepsize_controller=diffrax.ConstantStepSize(),
-    )
-    print(solution.stats["num_steps"], "steps taken")
-    xs, _ = solution.ys
-    x = xs[-1]
+    save_ts = jnp.arange(dt, 1.0, dt)
+    try:
+        solution = diffrax.diffeqsolve(
+            diffrax.ODETerm(_ode_fn),
+            solver,
+            t0=0.0,
+            t1=1.0,
+            dt0=dt,
+            y0=(x_init, lmbda_init),
+            saveat=diffrax.SaveAt(ts=save_ts, t0=True),
+            stepsize_controller=stepsize_controller,
+            max_steps=10_000,
+        )
+        print(solution.stats["num_steps"], "steps taken")
+        xs, _ = solution.ys
+        x = xs[-1]
+    except Exception as e:
+        print(f"diffeqsolve failed: {e}")
+        nan = jnp.nan
+        x = jnp.full((num_samples,) + data_shape, nan)
+        xs = jnp.full((len(save_ts) + 1, num_samples) + data_shape, nan)
 
     # All trajectories are in normalized space, so unnormalize before returning.
     return normalizer.unnormalize(x), normalizer.unnormalize(xs)
