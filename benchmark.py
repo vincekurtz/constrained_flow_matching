@@ -70,7 +70,7 @@ def build_generator(method: str, model, normalizer, constraint_fn, args):
     """JIT-compile a function ``rng -> single_sample`` for the chosen method."""
     if method == "ours":
         def _gen(rng):
-            x, _ = generate_constrained(
+            x, _, _ = generate_constrained(
                 model,
                 normalizer,
                 constraint_fn,

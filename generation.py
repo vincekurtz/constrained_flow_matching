@@ -115,6 +115,8 @@ def generate_constrained(
         x: Final generated samples of shape ``(num_samples, *data_shape)``.
         xs: Trajectories of shape ``(num_steps, num_samples, *data_shape)``.
             Contains NaNs if integration fails.
+        num_steps: Number of ODE solver steps taken. ``None`` if integration
+            failed.
     """
     if rng is None:
         rng = jax.random.key(0)
@@ -166,17 +168,19 @@ def generate_constrained(
             stepsize_controller=stepsize_controller,
             max_steps=10_000,
         )
-        print(solution.stats["num_steps"], "steps taken")
+        num_steps = solution.stats["num_steps"]
+        print(num_steps, "steps taken")
         xs, _ = solution.ys
         x = xs[-1]
     except Exception as e:
         print(f"diffeqsolve failed: {e}")
         nan = jnp.nan
+        num_steps = None
         x = jnp.full((num_samples,) + data_shape, nan)
         xs = jnp.full((len(save_ts) + 1, num_samples) + data_shape, nan)
 
     # All trajectories are in normalized space, so unnormalize before returning.
-    return normalizer.unnormalize(x), normalizer.unnormalize(xs)
+    return normalizer.unnormalize(x), normalizer.unnormalize(xs), num_steps
 
 
 def generate_inequality_constrained(

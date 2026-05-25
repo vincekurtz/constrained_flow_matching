@@ -69,7 +69,7 @@ if args.generate_constrained:
         return jnp.sum(x**2, axis=-1) - 1.0
 
     print("Generating samples with unit circle constraint...")
-    x, xs = generate_constrained(
+    x, xs, _ = generate_constrained(
         model,
         normalizer,
         unit_circle_constraint,

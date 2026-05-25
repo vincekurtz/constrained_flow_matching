@@ -81,7 +81,7 @@ if args.generate_constrained:
 
     print("Generating samples with unit circle constraint...")
     start_time = time.time()
-    x, xs = generate_constrained(
+    x, xs, _ = generate_constrained(
         model,
         normalizer,
         unit_circle_constraint,

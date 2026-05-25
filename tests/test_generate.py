@@ -131,7 +131,7 @@ def test_constrained_output_shapes(model_2d, identity_normalizer):
     """generate_constrained returns (x, xs) with correct shapes."""
     num_samples = 10
     dt = 0.1
-    x, xs = generate_constrained(
+    x, xs, _ = generate_constrained(
         model_2d,
         identity_normalizer,
         unit_circle_constraint,
@@ -147,7 +147,7 @@ def test_constrained_output_shapes(model_2d, identity_normalizer):
 
 def test_constrained_output_is_finite(model_2d, identity_normalizer):
     """All constrained-generated values are finite."""
-    x, xs = generate_constrained(
+    x, xs, _ = generate_constrained(
         model_2d,
         identity_normalizer,
         unit_circle_constraint,
@@ -171,14 +171,14 @@ def test_constrained_deterministic(model_2d, identity_normalizer):
         penalty_weight=1.0,
         rescale_factor=1.0,
     )
-    x1, _ = generate_constrained(model_2d, **kwargs)
-    x2, _ = generate_constrained(model_2d, **kwargs)
+    x1, _, _ = generate_constrained(model_2d, **kwargs)
+    x2, _, _ = generate_constrained(model_2d, **kwargs)
     assert jnp.array_equal(x1, x2)
 
 
 def test_constrained_trajectory_endpoint(model_2d, identity_normalizer):
     """Last trajectory step matches the returned final samples."""
-    x, xs = generate_constrained(
+    x, xs, _ = generate_constrained(
         model_2d,
         identity_normalizer,
         unit_circle_constraint,
@@ -197,7 +197,7 @@ def test_constrained_vector_constraint(model_2d, identity_normalizer):
         """Fix x[0] = 0.5 — returns a 1-D array."""
         return jnp.atleast_1d(x[0] - 0.5)
 
-    x, xs = generate_constrained(
+    x, xs, _ = generate_constrained(
         model_2d,
         identity_normalizer,
         pin_first_coord,

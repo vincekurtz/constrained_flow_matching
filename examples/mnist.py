@@ -96,7 +96,7 @@ if args.generate_constrained:
     print("Generating constrained (inpainted) samples...")
     num_samples = 25
     start_time = time.time()
-    x, xs = generate_constrained(
+    x, xs, _ = generate_constrained(
         model,
         normalizer,
         inpainting_constraint,

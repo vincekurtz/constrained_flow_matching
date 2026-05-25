@@ -128,7 +128,7 @@ def _make_single_sample_fn(
     if method == "ours":
 
         def _gen(rng):
-            x, _ = generate_constrained(
+            x, _, _ = generate_constrained(
                 model,
                 normalizer,
                 constraint_fn,
@@ -281,7 +281,7 @@ def plot_violation_vs_penalty(
         for exp_val, key in ((1.0, "exp1"), (2.0, "exp2")):
             violations = []
             for pw in penalties:
-                x, _ = generate_constrained(
+                x, _, _ = generate_constrained(
                     model,
                     normalizer,
                     _unit_circle_constraint,
@@ -388,7 +388,7 @@ def plot_constrained_star(
         print("[constrained_star] regenerating raw data ...")
         model, normalizer = _load_model("star")
         data = {}
-        x, xs = generate_constrained(
+        x, xs, _ = generate_constrained(
             model,
             normalizer,
             _unit_circle_constraint,
@@ -501,7 +501,7 @@ def plot_constrained_mnist(
         model, normalizer = _load_model("mnist")
         inpaint, reference, mask = _build_mnist_inpaint()
         data = {"reference": np.asarray(reference), "mask": np.asarray(mask)}
-        x, _ = generate_constrained(
+        x, _, _ = generate_constrained(
             model,
             normalizer,
             inpaint,
@@ -626,6 +626,86 @@ def plot_inequality_star(
 
 
 # ============================================================================
+# Plot 7: violation vs number of steps (dual flow p=2 vs penalty-only)
+# ============================================================================
+
+
+def plot_violation_vs_steps(
+    regenerate: bool = False,
+    num_samples: int = 200,
+):
+    """Violation vs actual solver steps, dual flow (p=2) vs penalty-only.
+
+    Each point is one penalty_weight value. Uses Dopri5 with tol=1e-5; points
+    within each method are connected by a dashed line.
+    """
+    _ensure_dirs()
+    data_file = DATA_DIR / "violation_vs_steps.json"
+
+    penalties = [0.5, 1.0, 2.0, 5.0, 10.0, 20.0, 50.0]
+    tol = 1e-5
+
+    if regenerate or not data_file.exists():
+        print("[violation_vs_steps] regenerating raw data ...")
+        model, normalizer = _load_model("star")
+        results = {"penalties": penalties}
+
+        for key, rescale_factor in (("exp2", 1.0), ("penalty", 0.0)):
+            records = []  # list of (num_steps, violation) per penalty
+            for pw in penalties:
+                x, _, n = generate_constrained(
+                    model,
+                    normalizer,
+                    _unit_circle_constraint,
+                    num_samples=num_samples,
+                    dt=0.01,
+                    penalty_weight=pw,
+                    rescale_factor=rescale_factor,
+                    rescale_exponent=2.0,
+                    solver=diffrax.Dopri5(),
+                    stepsize_controller=diffrax.PIDController(
+                        rtol=tol, atol=tol, dtmin=1e-5,
+                    ),
+                )
+                viol = float(jnp.mean(jnp.abs(_unit_circle_constraint(x))))
+                records.append((int(n) if n is not None else None, viol))
+                print(f"  {key}, pw={pw}, steps={n}, violation={viol:.4f}")
+            results[key] = records
+
+        with open(data_file, "w") as f:
+            json.dump(results, f, indent=2)
+
+    with open(data_file) as f:
+        results = json.load(f)
+
+    fig, ax = plt.subplots(figsize=(6, 4))
+    configs = [
+        ("exp2", "C0", "o", "Dual flow (p=2)"),
+        ("penalty", "C2", "^", "Penalty only"),
+    ]
+    for key, color, marker, label in configs:
+        pairs = sorted(r for r in results[key] if r[0] is not None)
+        steps = [r[0] for r in pairs]
+        viols = [r[1] for r in pairs]
+        ax.plot(
+            steps, viols, color=color, marker=marker,
+            linestyle="--", alpha=0.8, label=label,
+        )
+
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlabel("Number of Steps")
+    ax.set_ylabel("Mean Constraint Violation (|g(x)|)")
+    ax.grid(which="both", linestyle=":", alpha=0.5)
+    ax.legend()
+    fig.tight_layout()
+    out = FIG_DIR / "violation_vs_steps.png"
+    fig.savefig(out, dpi=150)
+    print(f"[violation_vs_steps] wrote {out}")
+    plt.close(fig)
+
+
+# ============================================================================
 # CLI
 # ============================================================================
 
@@ -636,6 +716,7 @@ PLOTS = {
     "constrained_star": plot_constrained_star,
     "constrained_mnist": plot_constrained_mnist,
     "inequality_star": plot_inequality_star,
+    "violation_vs_steps": plot_violation_vs_steps,
 }
 
 
