@@ -41,6 +41,7 @@ def generate_pcfm(
     penalty_weight: float = 0.1,
     num_correction_iters: int = 10,
     correction_lr: float = 0.1,
+    num_projection_iters: int = 8,
     num_final_projection_iters: int = 20,
     eps_reg: float = 1e-10,
 ) -> Tuple[jax.Array, jax.Array]:
@@ -66,6 +67,11 @@ def generate_pcfm(
         num_correction_iters: Gradient-descent iterations for the relaxed
             correction (ignored when ``penalty_weight == 0``).
         correction_lr: Step size for the relaxed-correction gradient descent.
+        num_projection_iters: Number of Gauss-Newton iterations used for the
+            per-step projection of the endpoint estimate onto the constraint
+            manifold. A single step is unreliable for strongly nonlinear
+            constraints (e.g. projecting a near-origin point onto a circle
+            overshoots to a huge radius), so we iterate to convergence.
         num_final_projection_iters: Number of Gauss-Newton iterations applied
             after the main loop to drive ``||h(x)||`` to numerical zero.
         eps_reg: Tikhonov regulariser on ``J J^T`` for the projection solve.
@@ -93,13 +99,24 @@ def generate_pcfm(
         u = u_flat.reshape(data_shape)
         return model(u[None], jnp.atleast_1d(tau))[0].ravel()
 
-    def _project(u_flat: jax.Array) -> jax.Array:
+    def _project_step(u_flat: jax.Array) -> jax.Array:
         """One Gauss-Newton step: u <- u - J^T (J J^T)^{-1} h(u)."""
         r = _h(u_flat)
         J = jax.jacobian(_h)(u_flat)  # (m, n)
         m = r.shape[0]
         z = jnp.linalg.solve(J @ J.T + eps_reg * jnp.eye(m), r)
         return u_flat - J.T @ z
+
+    def _project(u_flat: jax.Array) -> jax.Array:
+        """Iterate Gauss-Newton onto the manifold ``h(u) = 0``.
+
+        A single linearised step badly overshoots for nonlinear constraints
+        (projecting a point near the origin onto a circle blows up to radius
+        ``~1/(2|u|)``), so we iterate to convergence.
+        """
+        for _ in range(num_projection_iters):
+            u_flat = _project_step(u_flat)
+        return u_flat
 
     def _relaxed_correction(
         u_hat: jax.Array, tau_next: jax.Array
@@ -141,7 +158,7 @@ def generate_pcfm(
         # Final Gauss-Newton sweep to drive ||h(u)|| to numerical zero.
         u_final_proj = u_final
         for _ in range(num_final_projection_iters):
-            u_final_proj = _project(u_final_proj)
+            u_final_proj = _project_step(u_final_proj)
 
         # Prepend the initial noise and overwrite the last step with the
         # post-projection sample so the trajectory ends on the manifold.
