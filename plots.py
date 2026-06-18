@@ -334,43 +334,7 @@ def plot_violation_vs_penalty(
 
 
 # ============================================================================
-# Plot 3: unconstrained star
-# ============================================================================
-
-
-def plot_unconstrained_star(
-    regenerate: bool = False,
-    num_samples: int = 2000,
-):
-    """Scatter of unconstrained star samples, with training data behind."""
-    _ensure_dirs()
-    data_file = DATA_DIR / "unconstrained_star.pkl"
-
-    if regenerate or not data_file.exists():
-        print("[unconstrained_star] regenerating raw data ...")
-        model, normalizer = _load_model("star")
-        x, _ = generate(model, normalizer, num_samples=num_samples, dt=0.01)
-        with open(data_file, "wb") as f:
-            pickle.dump({"x": np.asarray(x)}, f)
-
-    with open(data_file, "rb") as f:
-        x = pickle.load(f)["x"]
-
-    fig, ax = plt.subplots(figsize=(5, 5))
-    ax.scatter(x[:, 0], x[:, 1], alpha=0.6, color="C0", label="generated")
-    ax.set_xlim(-1.5, 1.5)
-    ax.set_ylim(-1.5, 1.5)
-    ax.set_aspect("equal")
-    ax.grid(linestyle=":", alpha=0.4)
-    fig.tight_layout()
-    out = FIG_DIR / "unconstrained_star.png"
-    fig.savefig(out, dpi=150)
-    print(f"[unconstrained_star] wrote {out}")
-    plt.close(fig)
-
-
-# ============================================================================
-# Plot 4: constrained star + representative trajectories
+# Plot 3: constrained star + representative trajectories
 # ============================================================================
 
 
@@ -387,6 +351,12 @@ def plot_constrained_star(
         print("[constrained_star] regenerating raw data ...")
         model, normalizer = _load_model("star")
         data = {}
+        x_unc, xs_unc = generate(
+            model, normalizer, num_samples=num_samples, dt=0.01
+        )
+        data["unconstrained"] = {
+            "x": np.asarray(x_unc), "xs": np.asarray(xs_unc)
+        }
         x, xs, _ = generate_constrained(
             model,
             normalizer,
@@ -422,55 +392,40 @@ def plot_constrained_star(
         data = pickle.load(f)
 
     theta = np.linspace(0, 2 * np.pi, 200)
-    fig, axes = plt.subplots(2, 3, figsize=(12, 8), sharex=True, sharey=True)
-    for col, method in enumerate(METHODS):
-        d = data[method]
+    all_keys = [("unconstrained", "Unconstrained", "gray")] + [
+        (m, METHOD_NAMES[m], METHOD_COLORS[m]) for m in METHODS
+    ]
+    fig, axes = plt.subplots(2, 4, figsize=(16, 8), sharex=True, sharey=True)
+    for col, (key, title, color) in enumerate(all_keys):
+        d = data[key]
         x, xs = d["x"], d["xs"]
 
         ax = axes[0, col]
         ax.plot(np.cos(theta), np.sin(theta), "k--", alpha=0.4)
-        ax.scatter(
-            x[:, 0], x[:, 1], alpha=0.5, s=8, color=METHOD_COLORS[method]
-        )
+        ax.scatter(x[:, 0], x[:, 1], alpha=0.5, s=8, color=color)
         ax.set_xlim(-2, 2)
         ax.set_ylim(-2, 2)
         ax.set_aspect("equal")
-        ax.set_title(METHOD_NAMES[method])
+        ax.set_title(title)
         ax.grid(linestyle=":", alpha=0.4)
 
         ax = axes[1, col]
         ax.plot(np.cos(theta), np.sin(theta), "k--", alpha=0.4)
         n_show = min(num_paths, x.shape[0])
         for i in range(n_show):
-            ax.plot(
-                xs[:, i, 0],
-                xs[:, i, 1],
-                lw=1.0,
-                alpha=0.7,
-                color=METHOD_COLORS[method],
-            )
+            ax.plot(xs[:, i, 0], xs[:, i, 1], lw=1.0, alpha=0.7, color=color)
         ax.scatter(
-            xs[0, :n_show, 0],
-            xs[0, :n_show, 1],
-            s=15,
-            color="k",
-            alpha=0.5,
-            label="start",
+            xs[0, :n_show, 0], xs[0, :n_show, 1],
+            s=15, color="k", alpha=0.5, label="start",
         )
         ax.scatter(
-            xs[-1, :n_show, 0],
-            xs[-1, :n_show, 1],
-            s=15,
-            color=METHOD_COLORS[method],
-            label="end",
+            xs[-1, :n_show, 0], xs[-1, :n_show, 1],
+            s=15, color=color, label="end",
         )
         ax.set_xlim(-2, 2)
         ax.set_ylim(-2, 2)
-
-        # Leave grid lines, but remove ticks and labels for the trajectory subplots.
         ax.set_xticklabels([])
         ax.set_yticklabels([])
-
         ax.set_aspect("equal")
         ax.grid(linestyle=":", alpha=0.4)
     axes[0, 0].set_ylabel("Generated Samples")
@@ -752,7 +707,6 @@ def plot_violation_vs_steps(
 PLOTS = {
     "generation_times": plot_generation_times,
     "violation_vs_penalty": plot_violation_vs_penalty,
-    "unconstrained_star": plot_unconstrained_star,
     "constrained_star": plot_constrained_star,
     "constrained_mnist": plot_constrained_mnist,
     "inequality_star": plot_inequality_star,
