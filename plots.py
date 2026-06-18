@@ -682,15 +682,13 @@ def plot_violation_vs_steps(
         steps = [r[0] for r in pairs]
         viols = [r[1] for r in pairs]
         ax.plot(
-            viols, steps, color=color, marker=marker,
+            steps, viols, color=color, marker=marker,
             linestyle="--", alpha=0.8, label=label,
         )
 
-    ax.invert_xaxis()
-    ax.set_xscale("log")
-    # ax.set_yscale("log")
-    ax.set_ylabel("Denoising Steps")
-    ax.set_xlabel("Mean Constraint Violation (|g(x)|)")
+    ax.set_xlabel("Denoising Steps")
+    ax.set_ylabel("Mean Constraint Violation (|g(x)|)")
+    ax.set_yscale("log")
     ax.grid(which="both", linestyle=":", alpha=0.5)
     ax.legend()
     fig.tight_layout()
