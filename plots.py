@@ -174,18 +174,24 @@ def _make_single_sample_fn(
 
 
 def _time_method(method, example, num_samples, *, dt, num_steps, seed=0):
-    """JIT a single-sample generator and time ``num_samples`` invocations."""
+    """JIT a single-sample generator and time ``num_samples`` invocations.
+
+    Returns ``(times, violations)``: per-sample wall-clock times (s) and the
+    corresponding scalar constraint violations of each generated sample.
+    """
     gen = _make_single_sample_fn(method, example, dt=dt, num_steps=num_steps)
+    _, violation_fn = _get_constraint(example)
     rngs = jax.random.split(jax.random.key(seed), num_samples)
     # Warm-up (compile + first call).
     jax.block_until_ready(gen(rngs[0]))
-    times = []
+    times, violations = [], []
     for rng in rngs:
         t0 = time.perf_counter()
         sample = gen(rng)
         jax.block_until_ready(sample)
         times.append(time.perf_counter() - t0)
-    return times
+        violations.append(violation_fn(sample))
+    return times, violations
 
 
 # ============================================================================
@@ -208,19 +214,41 @@ def plot_generation_times(regenerate: bool = False, num_samples: int = 20):
                 results[example][method] = {}
                 for label, dt, n_steps in configs:
                     print(f"  {example} / {method} / {label}")
-                    times = _time_method(
+                    times, violations = _time_method(
                         method,
                         example,
                         num_samples,
                         dt=dt,
                         num_steps=n_steps,
                     )
-                    results[example][method][label] = times
+                    results[example][method][label] = {
+                        "times": times,
+                        "violations": violations,
+                    }
         with open(data_file, "w") as f:
             json.dump(results, f, indent=2)
 
     with open(data_file) as f:
         results = json.load(f)
+
+    print("[generation_times] summary per sample:")
+    header = f"    {'method':>12} / {'config':<6}: {'time (sec)':>10} | "
+    header += f"{'viol mean':>10} {'viol min':>10} {'viol max':>10}"
+    for example in ("star", "mnist"):
+        print(f"  {example}:")
+        print(header)
+        for method in METHODS:
+            for label in ("fine", "coarse"):
+                times = results[example][method][label]["times"]
+                violations = results[example][method][label]["violations"]
+                mean_sec = sum(times) / len(times)
+                v_mean = np.nanmean(violations)
+                v_min = min(violations)
+                v_max = max(violations)
+                print(
+                    f"    {method:>12} / {label:<6}: {mean_sec:10.3f} | "
+                    f"{v_mean:10.3e} {v_min:10.3e} {v_max:10.3e}"
+                )
 
     fig, axes = plt.subplots(1, 2, figsize=(11, 4))
     for ax, example in zip(axes, ("star", "mnist")):
@@ -228,7 +256,9 @@ def plot_generation_times(regenerate: bool = False, num_samples: int = 20):
         x = 0.0
         for method in METHODS:
             for label in ("fine", "coarse"):
-                data.append([t * 1000 for t in results[example][method][label]])
+                data.append(
+                    [t * 1000 for t in results[example][method][label]["times"]]
+                )
                 labels.append(f"{method}\n{label}")
                 positions.append(x)
                 colors.append(METHOD_COLORS[method])
