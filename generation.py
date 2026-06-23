@@ -195,7 +195,7 @@ def generate_inequality_constrained(
 ) -> Tuple[jax.Array, jax.Array]:
     """Generate samples from a trained flow model subject to h(x) <= 0.
 
-    Introduces slack variables s <= 0 and enforces h(x) = s as an equality
+    Introduces slack variables s >= 0 and enforces h(x) + s = 0 as an equality
     constraint via the primal-dual flow on the augmented state (x, s, lmbda).
 
     Args:
@@ -239,10 +239,10 @@ def generate_inequality_constrained(
 
         def _single(x_i, v_i, s_i, lmbda_i):
             h, vjp_fn = jax.vjp(_h, x_i)
-            g = h - s_i
+            g = h + s_i
             x_dot = (v_i - vjp_fn(lmbda_i + g)[0]).reshape(data_shape)
             lmbda_dot = rescale_factor * g / (1 - t + 1e-8)
-            s_dot = jnp.minimum(lmbda_i + h, 0) - s_i
+            s_dot = jnp.maximum(-h - lmbda_i, 0) - s_i
             return x_dot, s_dot, lmbda_dot
 
         x_dot, s_dot, lmbda_dot = jax.vmap(_single)(x_flat, v_flat, s, lmbda)
@@ -251,9 +251,9 @@ def generate_inequality_constrained(
     # Data samples are initialized as Gaussian noise.
     x_init = jax.random.normal(rng, (num_samples,) + data_shape)
 
-    # Initialize slacks: s = min(h(x_0), 0) so s <= 0.
+    # Initialize slacks: s = max(-h(x_0), 0) so s >= 0.
     h_init = jax.vmap(lambda xi: _h(xi.ravel()))(x_init)
-    s_init = jnp.minimum(h_init, 0.0)
+    s_init = jnp.maximum(-h_init, 0.0)
     lmbda_init = jnp.zeros_like(h_init)
 
     # Integrate the constrained flow ODE from t=0 to t=1.
