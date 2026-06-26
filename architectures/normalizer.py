@@ -49,7 +49,10 @@ class Normalizer:
             count += batch_size
 
         mean = running_sum / count
-        var = running_sum_sq / count - mean**2
+        # Clamp at 0 before the sqrt: for a (near-)constant coordinate the
+        # E[x^2] - mean^2 estimate can be slightly negative from float rounding,
+        # which would otherwise produce a NaN std that survives the max() below.
+        var = jnp.maximum(running_sum_sq / count - mean**2, 0.0)
         std = jnp.maximum(jnp.sqrt(var), 1e-6)
 
         return cls(mean, std)
