@@ -364,6 +364,105 @@ def plot_violation_vs_penalty(
 
 
 # ============================================================================
+# Plot 2b: MNIST constraint violation vs penalty weight (solver configs)
+# ============================================================================
+
+
+def plot_mnist_violation_vs_penalty(
+    regenerate: bool = False,
+    num_samples: int = 50,
+    dt: float = 0.01,
+):
+    """MNIST inpainting: max constraint violation vs penalty weight.
+
+    Illustrates the importance of error-controlled integration at high penalty
+    values.
+    """
+    _ensure_dirs()
+    data_file = DATA_DIR / "mnist_violation_vs_penalty.json"
+
+    penalties = [1.0, 2.0, 5.0, 10.0, 20.0, 25.0, 30.0, 50.0, 100.0]
+    configs = [
+        (
+            "midpoint",
+            "Midpoint (dt=0.01)",
+            diffrax.Midpoint(),
+            diffrax.ConstantStepSize(),
+        ),
+        (
+            "heun",
+            "Heun-Euler (adaptive)",
+            diffrax.Heun(),
+            diffrax.PIDController(rtol=1e-3, atol=1e-3, dtmin=1e-5),
+        ),
+    ]
+
+    if regenerate or not data_file.exists():
+        print("[mnist_violation_vs_penalty] regenerating raw data ...")
+        model, normalizer = _load_model("mnist")
+        inpaint, _, _ = _build_mnist_inpaint()
+
+        def _violation(x):
+            return float(
+                jnp.mean(
+                    jax.vmap(lambda xi: jnp.max(jnp.abs(inpaint(xi))))(x)
+                )
+            )
+
+        results = {
+            "penalties": penalties,
+            "dt": dt,
+            "num_samples": num_samples,
+        }
+        for key, _, solver, controller in configs:
+            violations = []
+            for pw in penalties:
+                x, _, _ = generate_constrained(
+                    model,
+                    normalizer,
+                    inpaint,
+                    num_samples=num_samples,
+                    dt=dt,
+                    penalty_weight=pw,
+                    rescale_factor=1.0,
+                    rescale_exponent=2.0,
+                    solver=solver,
+                    stepsize_controller=controller,
+                )
+                violations.append(_violation(x))
+                print(
+                    f"  {key}, penalty={pw}, violation={violations[-1]}"
+                )
+            results[key] = violations
+        with open(data_file, "w") as f:
+            json.dump(results, f, indent=2)
+
+    with open(data_file) as f:
+        results = json.load(f)
+
+    fig, ax = plt.subplots(figsize=(6, 4))
+    markers = {"midpoint": "o-", "heun": "s-"}
+    for key, label, _, _ in configs:
+        ax.plot(
+            results["penalties"],
+            results[key],
+            markers[key],
+            label=label,
+        )
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlabel("Penalty Weight (c)")
+    ax.set_ylabel("Constraint Violation ($\|g(x)\|_{\\infty}$)")
+    ax.grid(which="both", linestyle=":", alpha=0.5)
+    ax.legend()
+    fig.tight_layout()
+    out = FIG_DIR / "mnist_violation_vs_penalty.png"
+    fig.savefig(out, dpi=150)
+    print(f"[mnist_violation_vs_penalty] wrote {out}")
+    plt.close(fig)
+
+
+# ============================================================================
 # Plot 3: constrained star + representative trajectories
 # ============================================================================
 
@@ -735,6 +834,7 @@ def plot_violation_vs_steps(
 PLOTS = {
     "generation_times": plot_generation_times,
     "violation_vs_penalty": plot_violation_vs_penalty,
+    "mnist_violation_vs_penalty": plot_mnist_violation_vs_penalty,
     "constrained_star": plot_constrained_star,
     "constrained_mnist": plot_constrained_mnist,
     "inequality_star": plot_inequality_star,
