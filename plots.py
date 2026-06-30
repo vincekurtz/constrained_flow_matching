@@ -828,6 +828,86 @@ def plot_violation_vs_steps(
 
 
 # ============================================================================
+# Plot 8: PCFM flow paths with 1 vs 8 projection iterations
+# ============================================================================
+
+
+def plot_pcfm_projection_iters(
+    regenerate: bool = False,
+    num_samples: int = 500,
+    num_paths: int = 20,
+):
+    """PCFM flow paths on the star example, 1 vs 8 Gauss-Newton projections.
+
+    A single per-step projection badly overshoots for the nonlinear unit-circle
+    constraint (projecting a near-origin endpoint estimate onto the circle
+    blows up the radius), so the paths swing wildly before the final sweep
+    snaps them back. Eight iterations converge each step, giving smooth paths.
+    """
+    _ensure_dirs()
+    data_file = DATA_DIR / "pcfm_projection_iters.pkl"
+
+    iter_configs = [
+        (1, "Original (N=1)"),
+        (8, "Improved (N=8)"),
+    ]
+
+    if regenerate or not data_file.exists():
+        print("[pcfm_projection_iters] regenerating raw data ...")
+        model, normalizer = _load_model("star")
+        data = {}
+        for n_iters, _ in iter_configs:
+            x, xs = generate_pcfm(
+                model,
+                normalizer,
+                _unit_circle_constraint,
+                num_samples=num_samples,
+                num_steps=100,
+                num_projection_iters=n_iters,
+            )
+            viol = float(jnp.mean(jnp.abs(_unit_circle_constraint(x))))
+            print(f"  num_projection_iters={n_iters}, violation={viol:.3e}")
+            data[n_iters] = {"x": np.asarray(x), "xs": np.asarray(xs)}
+        with open(data_file, "wb") as f:
+            pickle.dump(data, f)
+
+    with open(data_file, "rb") as f:
+        data = pickle.load(f)
+
+    theta = np.linspace(0, 2 * np.pi, 200)
+    color = METHOD_COLORS["pcfm"]
+    fig, axes = plt.subplots(1, 2, figsize=(10, 5), sharex=True, sharey=True)
+    for ax, (n_iters, title) in zip(axes, iter_configs):
+        d = data[n_iters]
+        x, xs = d["x"], d["xs"]
+        ax.plot(np.cos(theta), np.sin(theta), "k--", alpha=0.4)
+        n_show = min(num_paths, x.shape[0])
+        for i in range(n_show):
+            ax.plot(xs[:, i, 0], xs[:, i, 1], lw=1.0, alpha=0.7, color=color)
+        ax.scatter(
+            xs[0, :n_show, 0], xs[0, :n_show, 1],
+            s=15, color="k", alpha=0.5, label="start",
+        )
+        ax.scatter(
+            xs[-1, :n_show, 0], xs[-1, :n_show, 1],
+            s=15, color=color, label="end",
+        )
+        ax.set_xlim(-2, 2)
+        ax.set_ylim(-2, 2)
+        ax.set_xticklabels([])
+        ax.set_yticklabels([])
+        ax.set_aspect("equal")
+        ax.set_title(title)
+        ax.grid(linestyle=":", alpha=0.4)
+    axes[0].legend(loc="upper right", fontsize=10)
+    fig.tight_layout()
+    out = FIG_DIR / "pcfm_projection_iters.png"
+    fig.savefig(out, dpi=150)
+    print(f"[pcfm_projection_iters] wrote {out}")
+    plt.close(fig)
+
+
+# ============================================================================
 # CLI
 # ============================================================================
 
@@ -839,6 +919,7 @@ PLOTS = {
     "constrained_mnist": plot_constrained_mnist,
     "inequality_star": plot_inequality_star,
     "violation_vs_steps": plot_violation_vs_steps,
+    "pcfm_projection_iters": plot_pcfm_projection_iters,
 }
 
 
