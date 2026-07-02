@@ -96,10 +96,10 @@ A pre-trained model is saved to `data/mnist_model.pkl` by default
 
 ### Further Details and Baselines
 
-The main implementation of Lagragian Dual Flows is in `generate.py`. [Physics
-Constrained Flow Matching](https://arxiv.org/abs/2506.04171) and [pseudoinverse
-guidance](https://arxiv.org/abs/2310.04432) baselines are implemented in
-`pcfm.py` and `pi_gdm.py` respectively.
+The main implementation of Lagragian Dual Flows is in `generate.py`.
+[Physics-constrained flow matching](https://arxiv.org/abs/2506.04171) and
+[pseudoinverse guidance](https://arxiv.org/abs/2310.04432) baselines are
+implemented in `pcfm.py` and `pi_gdm.py` respectively.
 
 ## Paper Reproduction
 

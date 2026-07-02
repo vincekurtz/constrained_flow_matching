@@ -15,7 +15,8 @@ def generate(
     dt: float = 0.01,
     seed: int = 0,
     solver: diffrax.AbstractSolver = diffrax.Midpoint(),
-    stepsize_controller: diffrax.AbstractStepSizeController = diffrax.ConstantStepSize(),
+    stepsize_controller:
+        diffrax.AbstractStepSizeController = diffrax.ConstantStepSize(),
 ) -> Tuple[jax.Array, jax.Array]:
     """Generate samples from a trained flow-matching model.
 

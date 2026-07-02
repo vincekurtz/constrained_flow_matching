@@ -200,7 +200,7 @@ def _time_method(method, example, num_samples, *, dt, num_steps, seed=0):
 
 
 def plot_generation_times(regenerate: bool = False, num_samples: int = 20):
-    """Box plots: per-sample generation time for 2 examples x 3 methods x 2 step sizes."""
+    """Box plots: per-sample generation times."""
     _ensure_dirs()
     data_file = DATA_DIR / "generation_times.json"
 
@@ -298,7 +298,7 @@ def plot_violation_vs_penalty(
     num_samples: int = 200,
     dt: float = 0.01,
 ):
-    """Mean constraint violation vs penalty weight for ours, two rescale exponents."""
+    """Mean constraint violation vs penalty weight for two rescale exponents."""
     _ensure_dirs()
     data_file = DATA_DIR / "violation_vs_penalty.json"
 
@@ -452,7 +452,7 @@ def plot_mnist_violation_vs_penalty(
     ax.set_xscale("log")
     ax.set_yscale("log")
     ax.set_xlabel("Penalty Weight (c)")
-    ax.set_ylabel("Constraint Violation ($\|g(x)\|_{\\infty}$)")
+    ax.set_ylabel("Constraint Violation ($\\|g(x)\\|_{\\infty}$)")
     ax.grid(which="both", linestyle=":", alpha=0.5)
     ax.legend()
     fig.tight_layout()
