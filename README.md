@@ -1,13 +1,33 @@
-# Constrained Flow Matching
+# Constrained Flow Matching via Lagrangian Dual Flows
 
-This repository demonstrates several methods for modifying the flow field
+This repository implements the constrained flow matching method described in
+the paper [Constrained Flow Matching via Lagragian Dual Flows]() by Vince
+Kurtz and Alexander Davydov.
+
+This method takes a pre-trained [flow matching](https://arxiv.org/abs/2210.02747)
+model
 ```math
 \dot{x} = v_\theta(x, t)
 ```
-of a pre-trained flow-matching generative model to enforce equality constraints
+and enforces inference-time constraints
 ```math
-g(x) = 0.
+g(x) = 0
 ```
+by augmenting the denoising ODE with Lagrangian dual dynamics
+```math
+\begin{aligned}
+& \dot{x} = v_\theta(x, t) - \nabla g(x)^\top\lambda - \nabla g(x)^\top g(x), \\
+& \dot{\lambda} = g(x) / (1-t)^2.
+\end{aligned}
+```
+
+Inequality constraints are also supported: see the paper for full details.
+
+> [!WARNING]
+> This is active research code, not a stable library. Expect rough edges: the
+> API may change without notice, some interfaces are undocumented, and things
+> may break. It is provided as-is, with no guarantee of support or maintenance.
+> Use at your own risk.
 
 ## Install
 
@@ -73,3 +93,28 @@ uv run -m examples.mnist --generate_constrained
 
 A pre-trained model is saved to `data/mnist_model.pkl` by default
 (`--save-path` overrides this for all three commands).
+
+### Further Details and Baselines
+
+The main implementation of Lagragian Dual Flows is in `generate.py`. [Physics
+Constrained Flow Matching](https://arxiv.org/abs/2506.04171) and [pseudoinverse
+guidance](https://arxiv.org/abs/2310.04432) baselines are implemented in
+`pcfm.py` and `pi_gdm.py` respectively.
+
+## Paper Reproduction
+
+To reproduce all examples in the paper, run
+```bash
+# train unconstrained flow matching models
+uv run -m examples.star --train
+uv run -m examples.mnist --train
+
+# Create and save figures to plots/figures
+uv run -m plots --regenerate
+```
+
+To reproduce Table 1 benchmarks, run
+```bash
+uv run ./make_benchmark_table.sh
+```
+
