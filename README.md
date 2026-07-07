@@ -1,8 +1,8 @@
 # Constrained Flow Matching via Lagrangian Dual Flows
 
-This repository implements the constrained flow matching method described in
-the paper [Constrained Flow Matching via Lagragian Dual Flows]() by Vince
-Kurtz and Alexander Davydov.
+This repository implements the constrained flow matching method described in the
+paper [Constrained Flow Matching via Lagragian Dual
+Flows](https://arxiv.org/abs/2607.04513) by Vince Kurtz and Alexander Davydov.
 
 This method takes a pre-trained [flow matching](https://arxiv.org/abs/2210.02747)
 model
