@@ -85,9 +85,10 @@ avoidance is imposed with inequality constraints
 h(x) = r_j + \text{clearance} - \|p_i - c_j\| \le 0
 ```
 
-for every point `p_i` along the path and every obstacle `(c_j, r_j)`. The start
-and goal are fixed and shared by every path, so the decision variables are the
-interior waypoints only.
+for every point `p_i` sampled along the path and every obstacle `(c_j, r_j)`.
+The decision variables are the interior knots of a cubic Bezier spline, so the
+robot's path is smooth however the constraints push the knots around. The start
+and goal are fixed and shared by every path.
 
 ```bash
 # train (takes about 30 seconds)
@@ -101,9 +102,15 @@ uv run -m examples.obstacles --generate_constrained
 uv run -m examples.obstacles --generate_constrained --num-obstacles 3 --scene-seed 7
 ```
 
-`--num-obstacles` and `--scene-seed` control the test scene. Across 1-3
-obstacle scenes, all 64 generated paths clear every obstacle, while 30-60% of
-unconstrained samples collide.
+`--num-obstacles` and `--scene-seed` control the test scene. With the default
+closed-form slack, all 64 generated paths clear every obstacle across 1-3
+obstacle scenes, while 25-90% of unconstrained samples collide.
+
+`--slack ode` switches to carrying the slack variable as an extra ODE state
+(see `generate_inequality_constrained`); `--penalty-weight` and
+`--rescale-factor` override the per-mode default gains. The slack ODE needs
+much gentler gains to stay stable and enforces the constraint less tightly,
+especially as obstacles are added.
 
 ### MNIST
 

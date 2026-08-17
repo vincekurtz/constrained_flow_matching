@@ -6,7 +6,10 @@ scene is sampled and obstacle avoidance is imposed with inequality constraints
 
     h(x) = r_j + clearance - ||p_i - c_j|| <= 0
 
-for every point p_i on the path and every obstacle (c_j, r_j).
+for every point p_i sampled along the path and every obstacle (c_j, r_j).
+
+The decision variables are the interior knots of a cubic Bezier spline, so
+the robot's path is smooth however the constraints push the knots around.
 """
 
 import argparse
@@ -21,7 +24,7 @@ import numpy as np
 
 from architectures.flow import FlowMLP
 from datasets.obstacle_paths import ObstaclePathDataset
-from examples.common import plot_paths
+from examples.common import bezier_spline, plot_paths
 from generation import generate, generate_inequality_constrained
 import training
 
@@ -37,61 +40,66 @@ parser.add_argument(
     "--scene-seed", type=int, default=0,
     help="Random seed for the test scene."
 )
+parser.add_argument(
+    "--slack", choices=["closed_form", "ode"], default="closed_form",
+    help="How the inequality solver handles the slack variable."
+)
+parser.add_argument(
+    "--penalty-weight", type=float, default=None,
+    help="Constraint penalty weight. Defaults to a per-slack-mode value."
+)
+parser.add_argument(
+    "--rescale-factor", type=float, default=None,
+    help="Multiplier flow rescaling. Defaults to a per-slack-mode value."
+)
 parser.add_argument("--save-path", type=str, default="data/obstacle_model.pkl")
 args = parser.parse_args()
 
 save_path = Path(args.save_path)
-dataset = ObstaclePathDataset(num_samples=4096, num_waypoints=24)
+dataset = ObstaclePathDataset(num_samples=4096, num_knots=10)
 model = FlowMLP(
-    data_shape=(dataset.num_waypoints, 2),
+    data_shape=(dataset.num_knots, 2),
     time_embedding_size=16,
     hidden_sizes=(256, 256, 256),
     rngs=nnx.Rngs(0),
 )
 
 # Start and goal are the same for every path, so they are not decision
-# variables: the model only generates the interior waypoints.
+# variables: the model only generates the interior spline knots.
 START = jnp.array(dataset.start.numpy())
 GOAL = jnp.array(dataset.goal.numpy())
 CLEARANCE = 0.02
-COLLISION_SUBSAMPLE = 8  # collision checks per path segment
+
+# Gains tuned per slack mode. The closed-form solver stays stable at much
+# stiffer settings than the slack ODE, which diverges well before it gets
+# there.
+SLACK_GAINS = {
+    "closed_form": {"penalty_weight": 40.0, "rescale_factor": 10.0},
+    "ode": {"penalty_weight": 5.0, "rescale_factor": 20.0},
+}
+COLLISION_SUBSAMPLE = 8  # collision checks per spline segment
+PLOT_SUBSAMPLE = 25  # samples per spline segment when drawing a path
 
 
-def full_path(waypoints: jax.Array) -> jax.Array:
-    """Prepend the start and append the goal to a batch of waypoints."""
-    lead = waypoints.shape[:-2]
+def full_knots(knots: jax.Array) -> jax.Array:
+    """Prepend the start and append the goal to a batch of interior knots."""
+    lead = knots.shape[:-2]
     start = jnp.broadcast_to(START, lead + (1, 2))
     goal = jnp.broadcast_to(GOAL, lead + (1, 2))
-    return jnp.concatenate([start, waypoints, goal], axis=-2)
+    return jnp.concatenate([start, knots, goal], axis=-2)
 
 
-def interpolate(path: jax.Array, num_sub: int) -> jax.Array:
-    """Resample a path with ``num_sub`` evenly spaced points per segment.
+def path(knots: jax.Array, num_sub: int) -> jax.Array:
+    """The Bezier spline the robot follows, given a batch of interior knots.
 
     Args:
-        path: Path points, shape ``(..., N, 2)``.
-        num_sub: Number of samples per segment. ``1`` returns the input.
+        knots: Interior knots, shape ``(..., T, 2)``.
+        num_sub: Samples per spline segment.
 
     Returns:
-        The densified path, shape ``(..., num_sub * (N - 1) + 1, 2)``.
+        Points along the path, shape ``(..., num_sub * (T + 1) + 1, 2)``.
     """
-    alphas = jnp.linspace(0.0, 1.0, num_sub, endpoint=False)
-    alphas = alphas.reshape((1,) * (path.ndim - 2) + (1, num_sub, 1))
-    starts = path[..., :-1, None, :]
-    ends = path[..., 1:, None, :]
-    segments = starts * (1 - alphas) + ends * alphas
-    segments = segments.reshape(path.shape[:-2] + (-1, 2))
-    return jnp.concatenate([segments, path[..., -1:, :]], axis=-2)
-
-
-def collision_points(waypoints: jax.Array) -> jax.Array:
-    """Path points where obstacle avoidance is enforced.
-
-    The path is densified before the check, because avoidance at the waypoints
-    alone would let a straight segment between two of them cut straight
-    through an obstacle.
-    """
-    return interpolate(full_path(waypoints), COLLISION_SUBSAMPLE)
+    return bezier_spline(full_knots(knots), num_sub)
 
 
 def sample_scene(seed: int, num_obstacles: int):
@@ -142,9 +150,13 @@ def sample_scene(seed: int, num_obstacles: int):
 def make_constraint_fn(centers: jax.Array, radii: jax.Array):
     """Build the obstacle-avoidance constraint h(x) <= 0 for one scene."""
 
-    def h(waypoints: jax.Array) -> jax.Array:
-        """Signed penetration depth of every path point into every obstacle."""
-        pts = collision_points(waypoints)  # (P, 2)
+    def h(knots: jax.Array) -> jax.Array:
+        """Signed penetration depth of the path into every obstacle.
+
+        The constraint is imposed on points sampled along the spline, not on
+        the knots: the curve between two knots is what the robot follows.
+        """
+        pts = path(knots, COLLISION_SUBSAMPLE)  # (P, 2)
         deltas = pts[:, None, :] - centers[None, :, :]  # (P, M, 2)
 
         # Smoothed norm: ||d|| is not differentiable at an obstacle center.
@@ -155,7 +167,7 @@ def make_constraint_fn(centers: jax.Array, radii: jax.Array):
 
 
 def report_violations(
-    waypoints: jax.Array, centers: jax.Array, radii: jax.Array
+    knots: jax.Array, centers: jax.Array, radii: jax.Array
 ) -> None:
     """Print how badly the generated paths hit the obstacles.
 
@@ -163,18 +175,22 @@ def report_violations(
     the constraint is imposed on, so the numbers reflect the robot's actual
     swept path rather than the constraint residual.
     """
-    dense = interpolate(full_path(waypoints), 50)
+    dense = path(knots, 50)
     deltas = dense[:, :, None, :] - centers[None, None, :, :]
     dists = jnp.linalg.norm(deltas, axis=-1)
     penetration = radii[None, None, :] - dists  # > 0 means inside an obstacle
     worst = jnp.max(penetration, axis=(1, 2))  # per path
 
+    num_nan = int(jnp.sum(jnp.isnan(worst)))
+    if num_nan:
+        print(f"  integration diverged for {num_nan}/{knots.shape[0]} paths")
+
     num_hit = int(jnp.sum(worst > 0.0))
-    print(f"  paths hitting an obstacle: {num_hit}/{waypoints.shape[0]}")
-    print(f"  deepest penetration:       {float(jnp.max(worst)):.5f}")
+    print(f"  paths hitting an obstacle: {num_hit}/{knots.shape[0]}")
+    print(f"  deepest penetration:       {float(jnp.nanmax(worst)):.5f}")
     print(
         f"  mean penetration:          "
-        f"{float(jnp.mean(jnp.maximum(worst, 0.0))):.5f}"
+        f"{float(jnp.nanmean(jnp.maximum(worst, 0.0))):.5f}"
     )
 
 
@@ -208,11 +224,11 @@ if args.generate:
 
     _, ax = plt.subplots(1, 2, figsize=(11, 5.5))
     plot_paths(
-        full_path(jnp.array(dataset.data.numpy()[:64])),
+        path(jnp.array(dataset.data.numpy()[:64]), PLOT_SUBSAMPLE),
         start=START, goal=GOAL, ax=ax[0], title="Training Data",
     )
     plot_paths(
-        full_path(x),
+        path(x, PLOT_SUBSAMPLE),
         start=START, goal=GOAL, ax=ax[1], title="Generated Paths",
     )
     plt.tight_layout()
@@ -224,15 +240,24 @@ if args.generate_constrained:
     centers, radii = sample_scene(args.scene_seed, args.num_obstacles)
     h = make_constraint_fn(centers, radii)
 
-    print(f"Generating paths for a new {args.num_obstacles}-obstacle scene...")
+    gains = SLACK_GAINS[args.slack]
+    penalty_weight = args.penalty_weight or gains["penalty_weight"]
+    rescale_factor = args.rescale_factor or gains["rescale_factor"]
+
+    print(
+        f"Generating paths for a new {args.num_obstacles}-obstacle scene "
+        f"(slack={args.slack}, penalty_weight={penalty_weight}, "
+        f"rescale_factor={rescale_factor})..."
+    )
     x, _ = generate_inequality_constrained(
         model,
         normalizer,
         h,
         num_samples=64,
         dt=0.002,
-        penalty_weight=40.0,
-        rescale_factor=10.0,
+        penalty_weight=penalty_weight,
+        rescale_factor=rescale_factor,
+        slack=args.slack,
     )
     print("With obstacle constraints:")
     report_violations(x, centers, radii)
@@ -243,11 +268,11 @@ if args.generate_constrained:
 
     _, ax = plt.subplots(1, 2, figsize=(11, 5.5))
     plot_paths(
-        full_path(x_unconstrained), obstacles=(centers, radii),
+        path(x_unconstrained, PLOT_SUBSAMPLE), obstacles=(centers, radii),
         start=START, goal=GOAL, ax=ax[0], title="Unconstrained",
     )
     plot_paths(
-        full_path(x), obstacles=(centers, radii),
+        path(x, PLOT_SUBSAMPLE), obstacles=(centers, radii),
         start=START, goal=GOAL, ax=ax[1], title="Obstacle Constraints",
     )
     plt.tight_layout()
