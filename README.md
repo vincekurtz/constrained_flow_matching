@@ -74,6 +74,37 @@ uv run -m examples.unit_circle --generate_constrained
 
 Training takes about a minute on a laptop CPU.
 
+### Obstacle avoidance
+
+A point-mass robot plans a path through a field of circular obstacles. The
+flow model is trained *unconditionally* on wiggly start-to-goal paths and never
+sees an obstacle. At inference time a brand-new scene is sampled and obstacle
+avoidance is imposed with inequality constraints
+
+```math
+h(x) = r_j + \text{clearance} - \|p_i - c_j\| \le 0
+```
+
+for every point `p_i` along the path and every obstacle `(c_j, r_j)`. The start
+and goal are fixed and shared by every path, so the decision variables are the
+interior waypoints only.
+
+```bash
+# train (takes about 30 seconds)
+uv run -m examples.obstacles --train
+
+# unconditional generation
+uv run -m examples.obstacles --generate
+
+# plan around a new, randomly generated scene
+uv run -m examples.obstacles --generate_constrained
+uv run -m examples.obstacles --generate_constrained --num-obstacles 3 --scene-seed 7
+```
+
+`--num-obstacles` and `--scene-seed` control the test scene. Across 1-3
+obstacle scenes, all 64 generated paths clear every obstacle, while 30-60% of
+unconstrained samples collide.
+
 ### MNIST
 
 The MNIST example trains a UNet-based flow-matching model on handwritten digits

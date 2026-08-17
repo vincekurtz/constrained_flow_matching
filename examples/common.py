@@ -49,3 +49,61 @@ def plot_2d(
 
     plt.tight_layout()
     plt.show()
+
+
+def plot_paths(
+    paths: jax.Array,
+    obstacles=None,
+    start=None,
+    goal=None,
+    ax=None,
+    title: str = "",
+    color: str = "C0",
+    alpha: float = 0.5,
+    plot_lims: Tuple[float, float] = (-1.6, 1.6),
+):
+    """Plot a batch of 2-D robot paths over a field of circular obstacles.
+
+    Args:
+        paths: Robot paths, shape ``(num_paths, num_points, 2)``.
+        obstacles: Optional ``(centers, radii)`` describing the circular
+            obstacles, with shapes ``(M, 2)`` and ``(M,)``.
+        start: Optional start position to mark, shape ``(2,)``.
+        goal: Optional goal position to mark, shape ``(2,)``.
+        ax: Optional matplotlib axes to draw on. A new figure is created when
+            this is not given.
+        title: Title for the axes.
+        color: Color of the paths.
+        alpha: Opacity of the paths.
+        plot_lims: (lo, hi) limits applied to both axes.
+    """
+    if ax is None:
+        _, ax = plt.subplots(figsize=(6, 6))
+
+    if obstacles is not None:
+        centers, radii = obstacles
+        for center, radius in zip(centers, radii):
+            ax.add_patch(
+                plt.Circle(tuple(center), float(radius), color="0.6", zorder=1)
+            )
+
+    for path in paths:
+        ax.plot(path[:, 0], path[:, 1], color=color, alpha=alpha, lw=1,
+                zorder=2)
+
+    if start is not None:
+        ax.plot(start[0], start[1], "o", color="C2", ms=10, zorder=3,
+                label="start")
+    if goal is not None:
+        ax.plot(goal[0], goal[1], "*", color="C3", ms=16, zorder=3,
+                label="goal")
+    if start is not None or goal is not None:
+        ax.legend(loc="upper right")
+
+    lo, hi = plot_lims
+    ax.set_title(title)
+    ax.set_aspect("equal")
+    ax.set_xlim(lo, hi)
+    ax.set_ylim(lo, hi)
+    ax.grid(alpha=0.3)
+    return ax

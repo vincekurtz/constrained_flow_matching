@@ -193,11 +193,23 @@ def generate_inequality_constrained(
     seed: int = 0,
     penalty_weight: float = 5.0,
     rescale_factor: float = 10.0,
+    solver: diffrax.AbstractSolver = diffrax.Midpoint(),
+    stepsize_controller: diffrax.AbstractStepSizeController = (
+        diffrax.ConstantStepSize()
+    ),
 ) -> Tuple[jax.Array, jax.Array]:
     """Generate samples from a trained flow model subject to h(x) <= 0.
 
-    Introduces slack variables s >= 0 and enforces h(x) + s = 0 as an equality
-    constraint via the primal-dual flow on the augmented state (x, s, lmbda).
+    Introduces a slack variable s >= 0 and enforces h(x) + s = 0 as an equality
+    constraint via the primal-dual flow on the augmented state (x, lmbda). The
+    slack is not integrated: for fixed x and lmbda the augmented Lagrangian is
+    minimized over s >= 0 by
+
+        s* = max(-h(x) - lmbda, 0),    so    g = h(x) + s* = max(h(x), -lmbda),
+
+    so the slack is substituted in closed form. Carrying s as an extra ODE
+    state instead makes it lag behind h(x) over the [0, 1] horizon, and the
+    resulting g = h + s mismatch pushes on *every* constraint, active or not.
 
     Args:
         model: Trained flow model xdot = v(x, t). Must have a ``data_shape``
@@ -214,6 +226,11 @@ def generate_inequality_constrained(
             toward the constraint manifold.
         rescale_factor: Factor by which to rescale the time for the Lagrange
             multiplier flow.
+        solver: diffrax solver to use. Defaults to ``Midpoint()``.
+        stepsize_controller: diffrax step-size controller. Defaults to
+            ``ConstantStepSize()``. Pass a ``PIDController`` for adaptive
+            error control, which the stiff dynamics that come with many
+            active constraints tend to need.
 
     Returns:
         x: Final generated samples of shape ``(num_samples, *data_shape)``.
@@ -231,45 +248,52 @@ def generate_inequality_constrained(
     def _ode_fn(t, y, args):
         """Batched constrained dynamics for the primal-dual flow."""
         del args
-        x, s, lmbda = y
+        x, lmbda = y
         t_batch = jnp.full((x.shape[0],), t)
         v = model(x, t_batch)
 
         x_flat = x.reshape((x.shape[0], -1))
         v_flat = v.reshape((v.shape[0], -1))
 
-        def _single(x_i, v_i, s_i, lmbda_i):
+        def _single(x_i, v_i, lmbda_i):
             h, vjp_fn = jax.vjp(_h, x_i)
-            g = h + s_i
-            x_dot = (v_i - vjp_fn(lmbda_i + g)[0]).reshape(data_shape)
-            lmbda_dot = rescale_factor * g / (1 - t + 1e-8)
-            s_dot = jnp.maximum(-h - lmbda_i, 0) - s_i
-            return x_dot, s_dot, lmbda_dot
 
-        x_dot, s_dot, lmbda_dot = jax.vmap(_single)(x_flat, v_flat, s, lmbda)
-        return x_dot.reshape(x.shape), s_dot, lmbda_dot
+            # g = h + s* with the optimal slack substituted in. Inactive
+            # constraints (h < -lmbda) have dg/dh = 0 and so exert no force.
+            g = jnp.maximum(h, -lmbda_i)
+            active = (h > -lmbda_i).astype(g.dtype)
+
+            x_dot = (v_i - vjp_fn(active * (lmbda_i + g))[0]).reshape(
+                data_shape
+            )
+            lmbda_dot = rescale_factor * g / (1 - t + 1e-8)
+            return x_dot, lmbda_dot
+
+        x_dot, lmbda_dot = jax.vmap(_single)(x_flat, v_flat, lmbda)
+        return x_dot.reshape(x.shape), lmbda_dot
 
     # Data samples are initialized as Gaussian noise.
     x_init = jax.random.normal(rng, (num_samples,) + data_shape)
 
-    # Initialize slacks: s = max(-h(x_0), 0) so s >= 0.
+    # Multipliers start at zero, so the flow initially follows the prior.
     h_init = jax.vmap(lambda xi: _h(xi.ravel()))(x_init)
-    s_init = jnp.maximum(-h_init, 0.0)
     lmbda_init = jnp.zeros_like(h_init)
 
     # Integrate the constrained flow ODE from t=0 to t=1.
+    save_ts = jnp.arange(dt, 1.0, dt)
     solution = diffrax.diffeqsolve(
         diffrax.ODETerm(_ode_fn),
-        diffrax.Midpoint(),
+        solver,
         t0=0.0,
         t1=1.0,
         dt0=dt,
-        y0=(x_init, s_init, lmbda_init),
-        saveat=diffrax.SaveAt(ts=jnp.arange(dt, 1.0, dt), t0=True),
-        stepsize_controller=diffrax.ConstantStepSize(),
+        y0=(x_init, lmbda_init),
+        saveat=diffrax.SaveAt(ts=save_ts, t0=True),
+        stepsize_controller=stepsize_controller,
+        max_steps=100_000,
     )
     print(solution.stats["num_steps"], "steps taken")
-    xs, _, _ = solution.ys
+    xs, _ = solution.ys
     x = xs[-1]
 
     # All trajectories are in normalized space, so unnormalize before returning.

@@ -5,6 +5,7 @@ from datasets.mnist import MNISTDataset
 from datasets.unit_circle import UnitCircleDataset
 from datasets.star import StarDataset
 from datasets.spiral import SpiralDataset
+from datasets.obstacle_paths import ObstaclePathDataset
 
 
 # ---------------------------------------------------------------------------
@@ -131,3 +132,57 @@ def test_mnist_pixel_range(mnist_train):
 def test_mnist_data_tensor_shape(mnist_train):
     """The full data tensor has shape (60000, 28, 28, 1)."""
     assert mnist_train.data.shape == (60000, 28, 28, 1)
+
+
+# ---------------------------------------------------------------------------
+# ObstaclePathDataset tests
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def paths():
+    return ObstaclePathDataset(num_samples=64, num_waypoints=12)
+
+
+def test_obstacle_paths_shape(paths):
+    """Each sample is a sequence of 2-D waypoints."""
+    assert len(paths) == 64
+    assert paths.data.shape == (64, 12, 2)
+    assert paths[0].shape == (12, 2)
+    assert paths[0].dtype == torch.float32
+
+
+def test_obstacle_paths_finite(paths):
+    """All waypoints are finite."""
+    assert torch.isfinite(paths.data).all()
+
+
+def test_obstacle_paths_endpoints(paths):
+    """The full path starts at the start and ends at the goal."""
+    full = paths.full_path(paths.data)
+    assert full.shape == (64, 14, 2)
+    assert torch.allclose(full[:, 0], paths.start.expand(64, 2))
+    assert torch.allclose(full[:, -1], paths.goal.expand(64, 2))
+
+
+def test_obstacle_paths_are_smooth(paths):
+    """Paths have no long jumps and turn gradually."""
+    full = paths.full_path(paths.data)
+    steps = torch.linalg.norm(full[:, 1:] - full[:, :-1], dim=-1)
+    accel = torch.linalg.norm(
+        full[:, 2:] - 2 * full[:, 1:-1] + full[:, :-2], dim=-1
+    )
+
+    spacing = torch.linalg.norm(paths.goal - paths.start) / (
+        paths.num_waypoints + 1
+    )
+    assert steps.max() <= paths.max_step_ratio * spacing
+    assert accel.mean() < 0.2 * steps.mean()
+
+
+def test_obstacle_paths_are_diverse():
+    """Paths detour to both sides of the straight line from start to goal."""
+    ds = ObstaclePathDataset(num_samples=256, num_waypoints=12)
+    mean_offset = ds.data[..., 1].mean(dim=-1)
+    assert (mean_offset > 0.05).any()
+    assert (mean_offset < -0.05).any()
