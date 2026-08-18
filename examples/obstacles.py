@@ -74,7 +74,7 @@ CLEARANCE = 0.02
 # stiffer settings than the slack ODE, which diverges well before it gets
 # there.
 SLACK_GAINS = {
-    "closed_form": {"penalty_weight": 40.0, "rescale_factor": 10.0},
+    "closed_form": {"penalty_weight": 40.0, "rescale_factor": 1.0},
     "ode": {"penalty_weight": 5.0, "rescale_factor": 20.0},
 }
 COLLISION_SUBSAMPLE = 8  # collision checks per spline segment
