@@ -23,23 +23,21 @@ with the scheduling function
 
 The blow-up of ``phi`` as ``t -> 1`` is what drives an infeasible sample back
 into the feasible set before the flow terminates: for ``b < 0`` the condition
-forces ``|b|`` to decay like ``exp(-omega / (1 - t))``. Unbounded, it also
-makes the ODE arbitrarily stiff at the very end of the horizon, so we cap the
-schedule at ``phi_max``; the residual violation this leaves behind is what the
-terminal filter is for.
+forces ``|b|`` to decay like ``exp(-omega / (1 - t))``. It also makes the flow
+arbitrarily stiff at the end of the horizon, which is what the adaptive
+step-size control of Algorithm 1 is there to handle.
 
 ``u_t`` is the smallest correction meeting every condition at once, i.e. the
-solution of the quadratic program of Algorithm 1, line 8,
+quadratic program of Algorithm 1, line 8,
 
     min_u ||u||^2   s.t.   grad b_i . u >= -a_i,
-    a_i = grad b_i . v + phi(t, b_i) b_i.
+    a_i = grad b_i . v + phi(t, b_i) b_i,
 
-In the paper each constraint acts on a single, disjoint waypoint of the
-trajectory, so the QP separates and Algorithm 1 quotes its closed-form
-solution ``u_i = -grad b_i a_i / ||grad b_i||^2`` for the violated
-constraints. Our constraints share decision variables (every knot of a spline
-moves every collision-check point), so the QP is solved jointly; it collapses
-back to that closed form whenever only one constraint is active.
+solved here with qpax. Several barrier conditions can easily be mutually
+unsatisfiable, in which case there is no such correction and the solve fails.
+Setting ``qp="elastic"`` swaps in the elastic relaxation, which prices
+constraint violation at ``qp_penalty`` per unit instead of failing outright and
+recovers the exact solution whenever one exists.
 
 A terminal safety filter runs after the integration to mop up whatever
 violation the numerics leave behind at ``t = 1``.
@@ -48,9 +46,11 @@ violation the numerics leave behind at ``t = 1``.
 from typing import Callable, Tuple
 
 import diffrax
+import equinox as eqx
 from flax import nnx
 import jax
 import jax.numpy as jnp
+import qpax
 
 from architectures.normalizer import Normalizer
 
@@ -64,8 +64,10 @@ def generate_cbf(
     seed: int = 0,
     phi0: float = 1.0,
     omega: float = 4.0,
-    phi_max: float = 1e3,
-    num_qp_iters: int = 50,
+    qp: str = "exact",
+    qp_penalty: float = 1e4,
+    qp_tol: float = 1e-5,
+    qp_max_iter: int = 30,
     num_terminal_iters: int = 20,
     eps_reg: float = 1e-6,
     solver: diffrax.AbstractSolver = diffrax.Midpoint(),
@@ -99,27 +101,26 @@ def generate_cbf(
             let the flow approach the constraint boundary more freely.
         omega: Gain of the blow-up schedule ``omega / (1 - t)^2`` used where
             the sample is infeasible. The paper requires ``omega > 2``.
-        phi_max: Cap on the scheduling function. The uncapped schedule
-            diverges at ``t = 1`` and makes the flow unintegrably stiff there;
-            the cap only kicks in over the last ``sqrt(omega / phi_max)`` of
-            the horizon, by which point an infeasible sample has already been
-            driven to within ``exp(-phi_max * sqrt(omega / phi_max))`` of the
-            feasible set.
-        num_qp_iters: Dual FISTA iterations used to solve the safety-filter
-            QP at each right-hand side evaluation.
+        qp: How to solve the safety-filter QP. ``"exact"`` solves it as
+            written and raises when the barrier conditions cannot all be met
+            at once; ``"elastic"`` solves the relaxation described above,
+            which always has a solution.
+        qp_penalty: Price per unit of barrier-condition violation, used only
+            when ``qp="elastic"``. Large values recover the exact solution
+            where one exists.
+        qp_tol: KKT residual below which the QP counts as solved.
+        qp_max_iter: Interior-point iteration cap for the QP.
         num_terminal_iters: Gauss-Newton iterations for the terminal safety
             filter applied at ``t = 1``. Set to 0 to disable it.
-        eps_reg: Ridge on the QP dual (a soft-constraint relaxation that keeps
-            the filter well posed when the barrier conditions cannot all be
-            met at once), and Tikhonov regulariser for the terminal filter.
+        eps_reg: Tikhonov regulariser for the terminal filter.
         solver: diffrax solver to use. Defaults to ``Midpoint()``, matching
             the rest of the repository.
         stepsize_controller: diffrax step-size controller. Defaults to
             ``ConstantStepSize()``. The ``omega / (1 - t)^2`` schedule is
-            stiff near ``t = 1`` and a fixed-step low-order rule can throw
-            a sample off to infinity there, so pair a higher-order solver
-            (``Tsit5()``) with a ``PIDController`` when that shows up; this
-            is what Algorithm 1's embedded RK45 error control is for.
+            stiff near ``t = 1`` and a fixed-step low-order rule can throw a
+            sample off to infinity there, so pair a higher-order solver
+            (``Tsit5()``) with a ``PIDController`` when that shows up; this is
+            what Algorithm 1's embedded RK45 error control is for.
         max_steps: Maximum number of solver steps.
 
     Returns:
@@ -127,8 +128,12 @@ def generate_cbf(
         xs: Trajectories of shape ``(num_steps, num_samples, *data_shape)``,
             with the terminal filter applied to the last entry.
     """
+    if qp not in ("exact", "elastic"):
+        raise ValueError(f'qp must be "exact" or "elastic", got {qp!r}')
+
     rng = jax.random.key(seed)
     data_shape = model.data_shape
+    num_vars = int(jnp.prod(jnp.array(data_shape)))
     std_flat = jnp.broadcast_to(normalizer.std, data_shape).ravel()
 
     def _h(x_state_flat: jax.Array) -> jax.Array:
@@ -137,40 +142,33 @@ def generate_cbf(
 
     def _phi(t: jax.Array, b: jax.Array) -> jax.Array:
         """Scheduling function phi(t, b), blowing up where b < 0."""
-        phi1 = jnp.minimum(omega / (1.0 - t + 1e-8) ** 2, phi_max)
-        return jnp.where(b >= 0.0, phi0, phi1)
+        return jnp.where(b >= 0.0, phi0, omega / (1.0 - t + 1e-8) ** 2)
 
     def _safety_filter(J: jax.Array, a: jax.Array) -> jax.Array:
         """Minimum-norm ``u`` with ``grad b_i . u >= -a_i`` for all ``i``.
 
-        With ``grad b = -J``, the dual of ``min ||u||^2 / 2`` subject to
-        ``-J u >= -a`` is the nonnegative least-squares problem
-
-            min_{lam >= 0}  lam^T (J J^T + eps I) lam / 2  +  a^T lam,
-            u = -J^T lam,
-
-        which we solve with projected gradient descent, Nesterov-accelerated.
-        The Hessian is applied in factored form, and its exact Lipschitz
-        constant is the largest eigenvalue of the small ``n x n`` matrix
-        ``J^T J``, so each iteration costs two thin matrix-vector products.
+        With ``grad b = -J`` this is ``min ||u||^2 / 2`` subject to
+        ``J u <= a``, handed to qpax.
         """
-        L = jnp.linalg.eigvalsh(J.T @ J)[-1] + eps_reg
-        lmbda = jnp.zeros_like(a)
-
-        def _step(carry, _):
-            lmbda, y, theta = carry
-            grad = J @ (J.T @ y) + eps_reg * y + a
-            lmbda_next = jnp.maximum(y - grad / L, 0.0)
-            theta_next = 0.5 * (1.0 + jnp.sqrt(1.0 + 4.0 * theta**2))
-            y_next = lmbda_next + ((theta - 1.0) / theta_next) * (
-                lmbda_next - lmbda
+        Q, q = jnp.eye(num_vars), jnp.zeros(num_vars)
+        if qp == "elastic":
+            return qpax.solve_qp_elastic_primal(
+                Q, q, J, a, qp_penalty,
+                solver_tol=qp_tol, max_iter=qp_max_iter,
             )
-            return (lmbda_next, y_next, theta_next), None
 
-        (lmbda, _, _), _ = jax.lax.scan(
-            _step, (lmbda, lmbda, 1.0), None, length=num_qp_iters
+        # No equality constraints, so the equality block is empty.
+        u, _, _, _, converged, _ = qpax.solve_qp(
+            Q, q, jnp.zeros((0, num_vars)), jnp.zeros((0,)), J, a,
+            solver_tol=qp_tol, max_iter=qp_max_iter,
         )
-        return -J.T @ lmbda
+        return eqx.error_if(
+            u,
+            converged != 1,
+            "The CBF quadratic program did not solve: the barrier conditions "
+            "are mutually infeasible at this state, or qp_max_iter is too "
+            'small. Pass qp="elastic" to relax them instead.',
+        )
 
     def _ode_fn(t, y, args):
         del args

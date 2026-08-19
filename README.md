@@ -113,9 +113,17 @@ much gentler gains to stay stable and enforces the constraint less tightly,
 especially as obstacles are added.
 
 `--method cbf` runs the [SafeFlow](https://arxiv.org/abs/2504.08661) control
-barrier function baseline (`cbf.py`) on the same scene; `--phi0`, `--omega`
-and `--phi-max` set the barrier gains, and `--adaptive` swaps the fixed
-midpoint steps for Tsit5 with PID error control, as in SafeFlow's Algorithm 1.
+barrier function baseline (`cbf.py`) on the same scene, with `--phi0` and
+`--omega` setting the barrier gains. The safety-filter QP is solved with
+[qpax](https://github.com/kevin-tracy/qpax); barrier conditions that cannot all
+be met at once make it infeasible, which `--qp exact` (the default) raises on
+and `--qp elastic` relaxes, pricing violation at `--qp-penalty` per unit.
+
+The `omega / (1 - t)^2` schedule that pushes an infeasible sample back into the
+feasible set is unbounded at `t = 1`, so the fixed midpoint steps used
+elsewhere in this repository are not always enough to hold on to the flow.
+`--adaptive` swaps them for Tsit5 with PID error control, as in SafeFlow's
+Algorithm 1.
 
 ```bash
 uv run -m examples.obstacles --generate_constrained --method cbf

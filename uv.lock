@@ -68,9 +68,11 @@ source = { virtual = "." }
 dependencies = [
     { name = "cloudpickle" },
     { name = "diffrax" },
+    { name = "equinox" },
     { name = "flax" },
     { name = "jax", extra = ["cuda13"] },
     { name = "matplotlib" },
+    { name = "qpax" },
     { name = "setuptools" },
     { name = "tensorboard" },
     { name = "torch", version = "2.10.0", source = { registry = "https://download.pytorch.org/whl/cpu" }, marker = "sys_platform == 'darwin'" },
@@ -89,9 +91,11 @@ dev = [
 requires-dist = [
     { name = "cloudpickle", specifier = ">=3.1.2" },
     { name = "diffrax", specifier = ">=0.7.0" },
+    { name = "equinox", specifier = ">=0.13.8" },
     { name = "flax", specifier = ">=0.12.5" },
     { name = "jax", extras = ["cuda13"], specifier = ">=0.9.1" },
     { name = "matplotlib", specifier = ">=3.10.8" },
+    { name = "qpax", specifier = ">=0.1.4" },
     { name = "setuptools", specifier = "<=71" },
     { name = "tensorboard", specifier = ">=2.20.0" },
     { name = "torch", specifier = ">=2.10.0", index = "https://download.pytorch.org/whl/cpu" },
@@ -1400,6 +1404,19 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/da/92/1446574745d74df0c92e6aa4a7b0b3130706a4142b2d1a5869f2eaa423c6/pyyaml-6.0.3-cp314-cp314t-musllinux_1_2_x86_64.whl", hash = "sha256:16249ee61e95f858e83976573de0f5b2893b3677ba71c9dd36b9cf8be9ac6d65", size = 829923, upload-time = "2025-09-25T21:32:54.537Z" },
     { url = "https://files.pythonhosted.org/packages/f0/7a/1c7270340330e575b92f397352af856a8c06f230aa3e76f86b39d01b416a/pyyaml-6.0.3-cp314-cp314t-win_amd64.whl", hash = "sha256:4ad1906908f2f5ae4e5a8ddfce73c320c2a1429ec52eafd27138b7f1cbe341c9", size = 174062, upload-time = "2025-09-25T21:32:55.767Z" },
     { url = "https://files.pythonhosted.org/packages/f1/12/de94a39c2ef588c7e6455cfbe7343d3b2dc9d6b6b2f40c4c6565744c873d/pyyaml-6.0.3-cp314-cp314t-win_arm64.whl", hash = "sha256:ebc55a14a21cb14062aa4162f906cd962b28e2e9ea38f9b4391244cd8de4ae0b", size = 149341, upload-time = "2025-09-25T21:32:56.828Z" },
+]
+
+[[package]]
+name = "qpax"
+version = "0.1.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "jax" },
+    { name = "jaxlib" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/78/18/a43d9cc313e436c5a4c5140f98a4475c5f0c1c2b6233322a14b52dae0851/qpax-0.1.4.tar.gz", hash = "sha256:04aadede71f7da2d470c8fb4cad6cbac55a31d3329c40224470ea2657e49513e", size = 36039, upload-time = "2026-07-24T14:30:57.369Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/67/f4/3a08221e621a9791b3162f9127af6d28c7e9f81658f5fedb9b1109dcfe0b/qpax-0.1.4-py3-none-any.whl", hash = "sha256:c1aa581feeb1307a1551e3548bd228c4bb96a415971798f59235782548f30c04", size = 36543, upload-time = "2026-07-24T14:30:56.204Z" },
 ]
 
 [[package]]

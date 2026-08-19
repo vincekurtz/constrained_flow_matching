@@ -62,9 +62,13 @@ parser.add_argument(
          "infeasible."
 )
 parser.add_argument(
-    "--phi-max", type=float, default=1e3,
-    help="Cap on the CBF scheduling function, which is otherwise unbounded "
-         "at t = 1."
+    "--qp", choices=["exact", "elastic"], default="exact",
+    help="Solve the CBF quadratic program as written, or in its elastic "
+         "relaxation, which tolerates mutually infeasible barrier conditions."
+)
+parser.add_argument(
+    "--qp-penalty", type=float, default=1e4,
+    help="Price per unit of barrier-condition violation (--qp elastic only)."
 )
 parser.add_argument(
     "--adaptive", action="store_true",
@@ -272,12 +276,14 @@ if args.generate_constrained:
     if args.method == "cbf":
         print(
             f"Generating paths for a new {args.num_obstacles}-obstacle scene "
-            f"(method=cbf, phi0={args.phi0}, omega={args.omega})..."
+            f"(method=cbf, qp={args.qp}, phi0={args.phi0}, "
+            f"omega={args.omega})..."
         )
         # SafeFlow's Algorithm 1 integrates with an embedded RK pair and
-        # error control, which --adaptive reproduces. Fixed midpoint steps
-        # give the same answer here now that the barrier schedule is capped,
-        # and match the rest of the repository, so they are the default.
+        # error control, which --adaptive reproduces. The omega / (1 - t)^2
+        # schedule is genuinely stiff at the end of the horizon, so the fixed
+        # midpoint steps used elsewhere in the repository are not always
+        # enough to hold on to it.
         integrator = (
             {
                 "solver": diffrax.Tsit5(),
@@ -293,10 +299,11 @@ if args.generate_constrained:
             normalizer,
             h,
             num_samples=64,
-            dt=0.002,
+            dt=0.01,
             phi0=args.phi0,
             omega=args.omega,
-            phi_max=args.phi_max,
+            qp=args.qp,
+            qp_penalty=args.qp_penalty,
             **integrator,
         )
         title = "CBF Safety Filter"
