@@ -112,6 +112,16 @@ obstacle scenes, while 25-90% of unconstrained samples collide.
 much gentler gains to stay stable and enforces the constraint less tightly,
 especially as obstacles are added.
 
+`--method cbf` runs the [SafeFlow](https://arxiv.org/abs/2504.08661) control
+barrier function baseline (`cbf.py`) on the same scene; `--phi0`, `--omega`
+and `--phi-max` set the barrier gains, and `--adaptive` swaps the fixed
+midpoint steps for Tsit5 with PID error control, as in SafeFlow's Algorithm 1.
+
+```bash
+uv run -m examples.obstacles --generate_constrained --method cbf
+uv run -m examples.obstacles --generate_constrained --method cbf --adaptive
+```
+
 ### MNIST
 
 The MNIST example trains a UNet-based flow-matching model on handwritten digits
@@ -137,7 +147,9 @@ A pre-trained model is saved to `data/mnist_model.pkl` by default
 The main implementation of Lagragian Dual Flows is in `generate.py`.
 [Physics-constrained flow matching](https://arxiv.org/abs/2506.04171) and
 [pseudoinverse guidance](https://arxiv.org/abs/2310.04432) baselines are
-implemented in `pcfm.py` and `pi_gdm.py` respectively.
+implemented in `pcfm.py` and `pi_gdm.py` respectively. `cbf.py` implements the
+[SafeFlow](https://arxiv.org/abs/2504.08661) control barrier function baseline,
+which handles inequality constraints only.
 
 ## Paper Reproduction
 

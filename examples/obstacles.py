@@ -16,6 +16,7 @@ import argparse
 from pathlib import Path
 
 import cloudpickle
+import diffrax
 from flax import nnx
 import jax
 import jax.numpy as jnp
@@ -23,6 +24,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 from architectures.flow import FlowMLP
+from cbf import generate_cbf
 from datasets.obstacle_paths import ObstaclePathDataset
 from examples.common import bezier_spline, plot_paths
 from generation import generate, generate_inequality_constrained
@@ -41,16 +43,43 @@ parser.add_argument(
     help="Random seed for the test scene."
 )
 parser.add_argument(
+    "--method", choices=["dual", "cbf"], default="dual",
+    help="Constrained sampler: Lagrangian dual flow, or the SafeFlow CBF "
+         "safety filter baseline."
+)
+parser.add_argument(
     "--slack", choices=["closed_form", "ode"], default="closed_form",
-    help="How the inequality solver handles the slack variable."
+    help="How the inequality solver handles the slack variable (--method "
+         "dual only)."
+)
+parser.add_argument(
+    "--phi0", type=float, default=1.0,
+    help="CBF class-K gain used where the sample is feasible."
+)
+parser.add_argument(
+    "--omega", type=float, default=4.0,
+    help="CBF blow-up gain omega / (1 - t)^2 used where the sample is "
+         "infeasible."
+)
+parser.add_argument(
+    "--phi-max", type=float, default=1e3,
+    help="Cap on the CBF scheduling function, which is otherwise unbounded "
+         "at t = 1."
+)
+parser.add_argument(
+    "--adaptive", action="store_true",
+    help="Integrate the CBF flow with Tsit5 and PID error control instead of "
+         "fixed midpoint steps, as in SafeFlow's Algorithm 1."
 )
 parser.add_argument(
     "--penalty-weight", type=float, default=None,
-    help="Constraint penalty weight. Defaults to a per-slack-mode value."
+    help="Constraint penalty weight. Defaults to a per-slack-mode value "
+         "(--method dual only)."
 )
 parser.add_argument(
     "--rescale-factor", type=float, default=None,
-    help="Multiplier flow rescaling. Defaults to a per-slack-mode value."
+    help="Multiplier flow rescaling. Defaults to a per-slack-mode value "
+         "(--method dual only)."
 )
 parser.add_argument("--save-path", type=str, default="data/obstacle_model.pkl")
 args = parser.parse_args()
@@ -74,7 +103,7 @@ CLEARANCE = 0.02
 # stiffer settings than the slack ODE, which diverges well before it gets
 # there.
 SLACK_GAINS = {
-    "closed_form": {"penalty_weight": 40.0, "rescale_factor": 1.0},
+    "closed_form": {"penalty_weight": 40.0, "rescale_factor": 10.0},
     "ode": {"penalty_weight": 5.0, "rescale_factor": 20.0},
 }
 COLLISION_SUBSAMPLE = 8  # collision checks per spline segment
@@ -240,25 +269,58 @@ if args.generate_constrained:
     centers, radii = sample_scene(args.scene_seed, args.num_obstacles)
     h = make_constraint_fn(centers, radii)
 
-    gains = SLACK_GAINS[args.slack]
-    penalty_weight = args.penalty_weight or gains["penalty_weight"]
-    rescale_factor = args.rescale_factor or gains["rescale_factor"]
+    if args.method == "cbf":
+        print(
+            f"Generating paths for a new {args.num_obstacles}-obstacle scene "
+            f"(method=cbf, phi0={args.phi0}, omega={args.omega})..."
+        )
+        # SafeFlow's Algorithm 1 integrates with an embedded RK pair and
+        # error control, which --adaptive reproduces. Fixed midpoint steps
+        # give the same answer here now that the barrier schedule is capped,
+        # and match the rest of the repository, so they are the default.
+        integrator = (
+            {
+                "solver": diffrax.Tsit5(),
+                "stepsize_controller": diffrax.PIDController(
+                    rtol=1e-5, atol=1e-7
+                ),
+            }
+            if args.adaptive
+            else {}
+        )
+        x, _ = generate_cbf(
+            model,
+            normalizer,
+            h,
+            num_samples=64,
+            dt=0.002,
+            phi0=args.phi0,
+            omega=args.omega,
+            phi_max=args.phi_max,
+            **integrator,
+        )
+        title = "CBF Safety Filter"
+    else:
+        gains = SLACK_GAINS[args.slack]
+        penalty_weight = args.penalty_weight or gains["penalty_weight"]
+        rescale_factor = args.rescale_factor or gains["rescale_factor"]
 
-    print(
-        f"Generating paths for a new {args.num_obstacles}-obstacle scene "
-        f"(slack={args.slack}, penalty_weight={penalty_weight}, "
-        f"rescale_factor={rescale_factor})..."
-    )
-    x, _ = generate_inequality_constrained(
-        model,
-        normalizer,
-        h,
-        num_samples=64,
-        dt=0.002,
-        penalty_weight=penalty_weight,
-        rescale_factor=rescale_factor,
-        slack=args.slack,
-    )
+        print(
+            f"Generating paths for a new {args.num_obstacles}-obstacle scene "
+            f"(slack={args.slack}, penalty_weight={penalty_weight}, "
+            f"rescale_factor={rescale_factor})..."
+        )
+        x, _ = generate_inequality_constrained(
+            model,
+            normalizer,
+            h,
+            num_samples=64,
+            dt=0.002,
+            penalty_weight=penalty_weight,
+            rescale_factor=rescale_factor,
+            slack=args.slack,
+        )
+        title = "Obstacle Constraints"
     print("With obstacle constraints:")
     report_violations(x, centers, radii)
 
@@ -273,7 +335,7 @@ if args.generate_constrained:
     )
     plot_paths(
         path(x, PLOT_SUBSAMPLE), obstacles=(centers, radii),
-        start=START, goal=GOAL, ax=ax[1], title="Obstacle Constraints",
+        start=START, goal=GOAL, ax=ax[1], title=title,
     )
     plt.tight_layout()
     plt.show()
