@@ -1,16 +1,22 @@
 """Behavior specific to individual baselines.
 
 The registry contract in ``test_methods.py`` covers what every method must
-do; these cover the claims each baseline makes for itself, none of which were
-tested before.
+do; these cover the claims each baseline makes for itself.
+
+Results go through the session-wide ``run_once`` cache, so a configuration
+several tests need -- each baseline's default settings, most of all -- is
+generated once and shared. Tests stay one-claim-each; only the compilation
+is pooled.
 """
 
 import jax.numpy as jnp
 import pytest
 
-from cfm.core.constraints import inequality
-from cfm.methods import cbf, pcfm, pigdm
-from tests.conftest import DT, NUM_SAMPLES
+from cfm.methods import cbf, ldf, pcfm, pigdm
+from tests.conftest import DT, NUM_SAMPLES, SEED
+
+STEPS = int(1 / DT)
+COMMON = dict(num_samples=NUM_SAMPLES, seed=SEED)
 
 
 # --------------------------------------------------------------------------
@@ -18,54 +24,44 @@ from tests.conftest import DT, NUM_SAMPLES
 # --------------------------------------------------------------------------
 
 
-def test_pcfm_final_projection_drives_residual_to_zero(
-    model, normalizer, circle, rng
-):
+@pytest.fixture(scope="session")
+def pcfm_default(run_once, model, normalizer, circle):
+    return run_once("pcfm:default", lambda: pcfm.generate(
+        model, normalizer, circle, num_steps=STEPS, **COMMON
+    ))
+
+
+def test_pcfm_final_projection_drives_residual_to_zero(pcfm_default, circle):
     """PCFM's whole point: the constraint holds to numerical precision."""
-    out = pcfm.generate(
-        model, normalizer, circle, num_samples=NUM_SAMPLES, num_steps=20,
-        rng=rng,
-    )
-    assert float(jnp.max(circle.violations(out.x))) < 1e-5
+    assert float(jnp.max(circle.violations(pcfm_default.x))) < 1e-5
 
 
 def test_pcfm_without_final_projection_is_looser(
-    model, normalizer, circle, rng
+    run_once, model, normalizer, circle, pcfm_default
 ):
     """The final Gauss-Newton sweep is what buys the tight residual."""
-    tight = pcfm.generate(
-        model, normalizer, circle, num_samples=NUM_SAMPLES, num_steps=20,
-        rng=rng, num_final_projection_iters=20,
-    )
-    loose = pcfm.generate(
-        model, normalizer, circle, num_samples=NUM_SAMPLES, num_steps=20,
-        rng=rng, num_final_projection_iters=0,
-    )
-    assert (float(jnp.max(circle.violations(tight.x)))
+    loose = run_once("pcfm:no-final-projection", lambda: pcfm.generate(
+        model, normalizer, circle, num_steps=STEPS,
+        num_final_projection_iters=0, **COMMON
+    ))
+    assert (float(jnp.max(circle.violations(pcfm_default.x)))
             <= float(jnp.max(circle.violations(loose.x))))
 
 
 def test_pcfm_correction_weight_zero_skips_the_relaxed_step(
-    model, normalizer, circle, rng
+    run_once, model, normalizer, circle
 ):
     """lambda = 0 is documented as a no-op for linear constraints."""
-    out = pcfm.generate(
-        model, normalizer, circle, num_samples=NUM_SAMPLES, num_steps=20,
-        rng=rng, correction_weight=0.0,
-    )
+    out = run_once("pcfm:no-correction", lambda: pcfm.generate(
+        model, normalizer, circle, num_steps=STEPS, correction_weight=0.0,
+        **COMMON
+    ))
     assert jnp.all(jnp.isfinite(out.x))
 
 
-def test_pcfm_trajectory_spans_noise_to_sample(
-    model, normalizer, circle, rng
-):
-    num_steps = 20
-    out = pcfm.generate(
-        model, normalizer, circle, num_samples=NUM_SAMPLES,
-        num_steps=num_steps, rng=rng,
-    )
-    assert out.xs.shape[0] == num_steps + 1
-    assert jnp.allclose(out.xs[-1], out.x, atol=1e-6)
+def test_pcfm_trajectory_spans_noise_to_sample(pcfm_default):
+    assert pcfm_default.xs.shape[0] == STEPS + 1
+    assert jnp.allclose(pcfm_default.xs[-1], pcfm_default.x, atol=1e-6)
 
 
 # --------------------------------------------------------------------------
@@ -73,39 +69,32 @@ def test_pcfm_trajectory_spans_noise_to_sample(
 # --------------------------------------------------------------------------
 
 
+@pytest.fixture(scope="session")
+def pigdm_unguided(run_once, model, normalizer, circle):
+    return run_once("pigdm:unguided", lambda: pigdm.generate(
+        model, normalizer, circle, dt=DT, guidance_scale=0.0, **COMMON
+    ))
+
+
 def test_pigdm_guidance_scale_zero_ignores_the_constraint(
-    model, normalizer, circle, rng
+    pigdm_unguided, baseline
 ):
     """With no guidance PiGDM must reduce to the unconstrained flow."""
-    from cfm.methods.ldf import generate_unconstrained
-
-    guided = pigdm.generate(
-        model, normalizer, circle, num_samples=NUM_SAMPLES, dt=DT, rng=rng,
-        guidance_scale=0.0,
-    )
-    plain = generate_unconstrained(
-        model, normalizer, num_samples=NUM_SAMPLES, dt=DT, rng=rng
-    )
     # The unconstrained flow stops one step short of t = 1 by design, so
     # compare at the last time both of them record. PiGDM still evaluates the
     # Tweedie estimate and its VJP before scaling the correction by zero, so
     # the two paths differ by float32 accumulation rather than exactly.
-    assert jnp.allclose(guided.xs[-2], plain.xs[-1], atol=1e-3)
+    assert jnp.allclose(pigdm_unguided.xs[-2], baseline.xs[-1], atol=1e-3)
 
 
 def test_pigdm_stronger_guidance_tightens_the_constraint(
-    model, normalizer, circle, rng
+    run_once, model, normalizer, circle, pigdm_unguided
 ):
-    weak = pigdm.generate(
-        model, normalizer, circle, num_samples=NUM_SAMPLES, dt=DT, rng=rng,
-        guidance_scale=0.0,
-    )
-    strong = pigdm.generate(
-        model, normalizer, circle, num_samples=NUM_SAMPLES, dt=DT, rng=rng,
-        guidance_scale=1.0,
-    )
+    strong = run_once("pigdm:guided", lambda: pigdm.generate(
+        model, normalizer, circle, dt=DT, guidance_scale=1.0, **COMMON
+    ))
     assert (float(jnp.mean(circle.violations(strong.x)))
-            < float(jnp.mean(circle.violations(weak.x))))
+            < float(jnp.mean(circle.violations(pigdm_unguided.x))))
 
 
 # --------------------------------------------------------------------------
@@ -114,7 +103,7 @@ def test_pigdm_stronger_guidance_tightens_the_constraint(
 
 
 def test_cbf_exact_qp_fails_loudly_with_an_actionable_message(
-    model, normalizer, rng
+    model, normalizer, feasible
 ):
     """``qp="exact"`` raises rather than returning a bad correction.
 
@@ -125,132 +114,109 @@ def test_cbf_exact_qp_fails_loudly_with_an_actionable_message(
     contract being pinned here is that the failure is a clear error naming
     the workaround, not a silently wrong answer.
     """
-    slack = inequality(
-        lambda x: jnp.atleast_1d(jnp.sum(x**2) - 1e6), name="always feasible"
-    )
     with pytest.raises(Exception, match='qp="elastic"'):
         cbf.generate(
-            model, normalizer, slack, num_samples=NUM_SAMPLES, dt=DT,
-            rng=rng, qp="exact",
+            model, normalizer, feasible, dt=DT, qp="exact", **COMMON
         )
 
 
-def test_cbf_leaves_a_satisfied_constraint_alone(model, normalizer, rng):
+def test_cbf_leaves_a_satisfied_constraint_alone(
+    run_once, model, normalizer, feasible, baseline
+):
     """Where the sample is safely feasible the learned flow is untouched."""
-    from cfm.methods.ldf import generate_unconstrained
-
-    slack = inequality(
-        lambda x: jnp.atleast_1d(jnp.sum(x**2) - 1e6), name="always feasible"
-    )
-    filtered = cbf.generate(
-        model, normalizer, slack, num_samples=NUM_SAMPLES, dt=DT, rng=rng,
-        qp="elastic", num_terminal_iters=0,
-    )
-    plain = generate_unconstrained(
-        model, normalizer, num_samples=NUM_SAMPLES, dt=DT, rng=rng
-    )
-    assert jnp.allclose(filtered.xs[-1], plain.xs[-1], atol=1e-2)
+    filtered = run_once("cbf:feasible", lambda: cbf.generate(
+        model, normalizer, feasible, dt=DT, qp="elastic",
+        num_terminal_iters=0, **COMMON
+    ))
+    assert jnp.allclose(filtered.xs[-1], baseline.xs[-1], atol=1e-2)
 
 
 def test_cbf_elastic_survives_mutually_infeasible_conditions(
-    model, normalizer, rng
+    run_once, model, normalizer
 ):
     """Contradictory barriers must relax rather than crash."""
+    from cfm.core.constraints import inequality
+
     impossible = inequality(
         lambda x: jnp.array([-x[0] - 5.0, x[0] - 4.0]),
         name="x[0] >= 5 and x[0] <= 4",
     )
-    out = cbf.generate(
-        model, normalizer, impossible, num_samples=2, dt=DT, rng=rng,
-        qp="elastic", num_terminal_iters=0,
-    )
-    assert out.x.shape == (2, 2)
+    out = run_once("cbf:infeasible", lambda: cbf.generate(
+        model, normalizer, impossible, dt=DT, qp="elastic",
+        num_terminal_iters=0, **COMMON
+    ))
+    assert out.x.shape == (NUM_SAMPLES, 2)
 
 
-def test_cbf_rejects_an_unknown_qp_mode(model, normalizer, right_half, rng):
+def test_cbf_rejects_an_unknown_qp_mode(model, normalizer, right_half):
     with pytest.raises(ValueError, match='qp must be'):
         cbf.generate(
-            model, normalizer, right_half, num_samples=2, dt=DT, rng=rng,
-            qp="approximate",
+            model, normalizer, right_half, dt=DT, qp="approximate", **COMMON
         )
 
 
-def test_cbf_terminal_filter_tightens_the_result(model, normalizer, rng):
-    """The terminal filter mops up whatever violation the numerics leave."""
-    single = inequality(lambda x: jnp.atleast_1d(-x[0]), name="x[0] >= 0")
-    filtered = cbf.generate(
-        model, normalizer, single, num_samples=NUM_SAMPLES, dt=DT, rng=rng,
-        qp="elastic", num_terminal_iters=20,
-    )
-    unfiltered = cbf.generate(
-        model, normalizer, single, num_samples=NUM_SAMPLES, dt=DT, rng=rng,
-        qp="elastic", num_terminal_iters=0,
-    )
-    assert (float(jnp.max(single.violations(filtered.x)))
-            <= float(jnp.max(single.violations(unfiltered.x))))
-
-
-# --------------------------------------------------------------------------
-# LDF slack modes
-# --------------------------------------------------------------------------
-
-
-def test_ldf_slack_modes_both_reduce_violation(
-    model, normalizer, right_half, rng
+def test_cbf_terminal_filter_tightens_the_result(
+    run_once, model, normalizer, right_half
 ):
-    from cfm.methods.ldf import generate, generate_unconstrained
-
-    base = generate_unconstrained(
-        model, normalizer, num_samples=NUM_SAMPLES, dt=DT, rng=rng
-    )
-    baseline = float(jnp.mean(right_half.violations(base.x)))
-
-    for slack in ("closed_form", "ode"):
-        out = generate(
-            model, normalizer, right_half, num_samples=NUM_SAMPLES, dt=DT,
-            rng=rng, penalty_weight=1.5, rescale_factor=10.0, slack=slack,
-        )
-        achieved = float(jnp.mean(right_half.violations(out.x)))
-        assert achieved < baseline, f"slack={slack} did not help"
+    """The terminal filter mops up whatever violation the numerics leave."""
+    filtered = run_once("cbf:filtered", lambda: cbf.generate(
+        model, normalizer, right_half, dt=DT, qp="elastic", **COMMON
+    ))
+    unfiltered = run_once("cbf:unfiltered", lambda: cbf.generate(
+        model, normalizer, right_half, dt=DT, qp="elastic",
+        num_terminal_iters=0, **COMMON
+    ))
+    assert (float(jnp.max(right_half.violations(filtered.x)))
+            <= float(jnp.max(right_half.violations(unfiltered.x))))
 
 
-def test_ldf_rejects_unknown_slack_mode(model, normalizer, right_half, rng):
-    from cfm.methods.ldf import generate
+# --------------------------------------------------------------------------
+# LDF slack modes and projection
+# --------------------------------------------------------------------------
 
+
+@pytest.mark.parametrize("slack", ldf.SLACK_MODES)
+def test_ldf_slack_modes_both_reduce_violation(
+    slack, run_once, model, normalizer, right_half, baseline
+):
+    out = run_once(f"ldf:slack-{slack}", lambda: ldf.generate(
+        model, normalizer, right_half, dt=DT, penalty_weight=1.5,
+        rescale_factor=10.0, slack=slack, **COMMON
+    ))
+    assert (float(jnp.mean(right_half.violations(out.x)))
+            < float(jnp.mean(right_half.violations(baseline.x))))
+
+
+def test_ldf_rejects_unknown_slack_mode(model, normalizer, right_half):
     with pytest.raises(ValueError, match="slack must be one of"):
-        generate(
-            model, normalizer, right_half, num_samples=2, dt=DT, rng=rng,
-            slack="magic",
+        ldf.generate(
+            model, normalizer, right_half, dt=DT, slack="magic", **COMMON
         )
 
 
-def test_ldf_projection_tightens_the_result(model, normalizer, circle, rng):
-    from cfm.methods.ldf import generate
-
-    kwargs = dict(
-        num_samples=NUM_SAMPLES, dt=DT, rng=rng, penalty_weight=1.5,
-    )
-    plain = generate(model, normalizer, circle, **kwargs)
-    polished = generate(
+def test_ldf_projection_tightens_the_result(
+    run_once, model, normalizer, circle
+):
+    kwargs = dict(dt=DT, penalty_weight=1.5, **COMMON)
+    plain = run_once("ldf:circle", lambda: ldf.generate(
+        model, normalizer, circle, **kwargs
+    ))
+    polished = run_once("ldf:circle-projected", lambda: ldf.generate(
         model, normalizer, circle, num_projection_iters=3, **kwargs
-    )
+    ))
     assert (float(jnp.max(circle.violations(polished.x)))
             < float(jnp.max(circle.violations(plain.x))))
 
 
 def test_ldf_inequality_projection_leaves_feasible_samples_alone(
-    model, normalizer, rng
+    run_once, model, normalizer, feasible
 ):
     """Projecting an inequality must not disturb already-feasible samples."""
-    from cfm.methods.ldf import generate
-
-    # A constraint every sample satisfies comfortably.
-    slack_constraint = inequality(
-        lambda x: jnp.atleast_1d(jnp.sum(x**2) - 1e6), name="always feasible"
-    )
-    kwargs = dict(num_samples=NUM_SAMPLES, dt=DT, rng=rng, penalty_weight=0.0)
-    plain = generate(model, normalizer, slack_constraint, **kwargs)
-    polished = generate(
-        model, normalizer, slack_constraint, num_projection_iters=5, **kwargs
-    )
+    kwargs = dict(dt=DT, penalty_weight=0.0, **COMMON)
+    plain = run_once("ldf:feasible", lambda: ldf.generate(
+        model, normalizer, feasible, **kwargs
+    ))
+    polished = run_once("ldf:feasible-projected", lambda: ldf.generate(
+        model, normalizer, feasible, num_projection_iters=5, **kwargs
+    ))
     assert jnp.allclose(plain.x, polished.x, atol=1e-6)

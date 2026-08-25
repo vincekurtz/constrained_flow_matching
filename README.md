@@ -50,8 +50,8 @@ uv run ruff check
 
 ```
 cfm/            the library
-  core/         solver scaffolding, constraints, Gauss-Newton projection
-  methods/      LDF and the baselines, plus the method registry
+  core/         solver scaffolding, constraints, common utilities
+  methods/      LDF and baselines, plus the method registry
   models/       flow architectures (MLP, UNet, normalizer)
   datasets/     training datasets
   cli.py        the command line entry point
@@ -85,9 +85,7 @@ uv run -m cfm.cli list
 The `penalty` baseline is LDF with `rescale_factor = 0`, which freezes the
 Lagrange multipliers at their zero initialization and collapses the drift to
 $\dot{x} = v_\theta - \nabla g^\top g$: a pure quadratic penalty with no dual
-dynamics. It delegates to the same code path as `ldf` so the ablation cannot
-drift from the method it ablates, and it pins `rescale_factor` so a stray
-`--rescale-factor` cannot silently turn it back into full LDF.
+dynamics. 
 
 ## Examples
 
@@ -244,10 +242,3 @@ method on a fixed tiny model and seed. They exist so that refactoring can be
 verified rather than reviewed, and a failure means an algorithm changed. If a
 change is intended, regenerate with `uv run python -m tests.make_goldens` and
 review the array diff like any other change.
-
-**The LDF integration endpoint.** The multiplier flow carries a
-`1/(1-t)^p` factor that is singular at `t = 1`, so the trajectory is recorded
-only up to the last save time strictly before 1, and the returned sample is
-the state there. This is deliberate and load-bearing: on the trained star
-model, taking the final step instead moves mean violation from `2.6e-03` to
-`2.8e-02`. See `SAVE_ENDPOINT` in `cfm/methods/ldf.py`.

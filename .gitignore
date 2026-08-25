@@ -13,3 +13,6 @@ wheels/
 data
 experiments/baseline_raw/
 results/
+
+# XLA kernels cached between test runs (see tests/conftest.py)
+.jax_cache/

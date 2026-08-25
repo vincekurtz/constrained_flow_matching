@@ -2,6 +2,12 @@
 
 One test body, parameterized over the method registry, so a newly registered
 baseline is covered the moment it is added rather than needing its own file.
+
+Each method is generated from exactly once (see ``run_once`` in conftest);
+the assertions below all inspect that single result. Properties that belong
+to the shared plumbing rather than to any individual method -- seeding, in
+particular -- are tested directly against ``cfm.core.solve`` and end-to-end
+through LDF only, instead of once per method.
 """
 
 import jax
@@ -11,17 +17,19 @@ import pytest
 from cfm import methods
 
 from cfm.core.constraints import EQUALITY, INEQUALITY
-from cfm.core.solve import Samples
-from cfm.methods.ldf import generate_unconstrained
-from tests.conftest import DT, NUM_SAMPLES, PENALTY_WEIGHT, constraint_for
+from cfm.core.solve import Samples, initial_noise, resolve_rng
+from cfm.methods.ldf import generate, generate_unconstrained
+from tests.conftest import (
+    DT, NUM_SAMPLES, PENALTY_WEIGHT, SEED, constraint_for,
+)
 
 ALL = sorted(methods.METHODS.values(), key=lambda m: m.name)
 IDS = [m.name for m in ALL]
 
 
-def run(method, model, normalizer, constraint, rng, **overrides):
+def run(method, model, normalizer, constraint, **overrides):
     """Invoke a method with test-scale settings it can actually accept."""
-    cfg = {"num_samples": NUM_SAMPLES, "rng": rng}
+    cfg = {"num_samples": NUM_SAMPLES, "seed": SEED}
     cfg.update(overrides)
     if method.name in methods.USES_DT:
         cfg.setdefault("dt", DT)
@@ -34,13 +42,34 @@ def run(method, model, normalizer, constraint, rng, **overrides):
     return method.run(model, normalizer, constraint, **cfg)
 
 
+@pytest.fixture(scope="session")
+def result_for(run_once, model, normalizer, circle, right_half):
+    """The one result per method that the contract tests below share."""
+    def get(method):
+        kind = EQUALITY if EQUALITY in method.supports else INEQUALITY
+        constraint = constraint_for(kind, circle, right_half)
+        out = run_once(
+            f"contract:{method.name}",
+            lambda: run(method, model, normalizer, constraint),
+        )
+        return constraint, out
+
+    return get
+
+
+@pytest.fixture(scope="session")
+def unconstrained(run_once, model, normalizer):
+    return run_once(
+        "contract:baseline",
+        lambda: generate_unconstrained(
+            model, normalizer, num_samples=NUM_SAMPLES, dt=DT, seed=SEED
+        ),
+    )
+
+
 @pytest.mark.parametrize("method", ALL, ids=IDS)
-def test_returns_samples_with_correct_shapes(
-    method, model, normalizer, circle, right_half, rng
-):
-    kind = EQUALITY if EQUALITY in method.supports else INEQUALITY
-    constraint = constraint_for(kind, circle, right_half)
-    out = run(method, model, normalizer, constraint, rng)
+def test_returns_samples_with_correct_shapes(method, result_for):
+    _, out = result_for(method)
 
     assert isinstance(out, Samples)
     assert out.x.shape == (NUM_SAMPLES, 2)
@@ -49,46 +78,16 @@ def test_returns_samples_with_correct_shapes(
 
 
 @pytest.mark.parametrize("method", ALL, ids=IDS)
-def test_output_is_finite(
-    method, model, normalizer, circle, right_half, rng
-):
-    kind = EQUALITY if EQUALITY in method.supports else INEQUALITY
-    out = run(method, model, normalizer,
-              constraint_for(kind, circle, right_half), rng)
+def test_output_is_finite(method, result_for):
+    _, out = result_for(method)
     assert jnp.all(jnp.isfinite(out.x))
 
 
 @pytest.mark.parametrize("method", ALL, ids=IDS)
-def test_trajectory_ends_at_final_sample(
-    method, model, normalizer, circle, right_half, rng
-):
+def test_trajectory_ends_at_final_sample(method, result_for):
     """``xs[-1]`` is the sample that was returned, post-projection."""
-    kind = EQUALITY if EQUALITY in method.supports else INEQUALITY
-    out = run(method, model, normalizer,
-              constraint_for(kind, circle, right_half), rng)
+    _, out = result_for(method)
     assert jnp.allclose(out.xs[-1], out.x, atol=1e-6)
-
-
-@pytest.mark.parametrize("method", ALL, ids=IDS)
-def test_deterministic_given_rng(
-    method, model, normalizer, circle, right_half, rng
-):
-    kind = EQUALITY if EQUALITY in method.supports else INEQUALITY
-    constraint = constraint_for(kind, circle, right_half)
-    a = run(method, model, normalizer, constraint, rng)
-    b = run(method, model, normalizer, constraint, rng)
-    assert jnp.array_equal(a.x, b.x)
-
-
-@pytest.mark.parametrize("method", ALL, ids=IDS)
-def test_different_rng_gives_different_samples(
-    method, model, normalizer, circle, right_half
-):
-    kind = EQUALITY if EQUALITY in method.supports else INEQUALITY
-    constraint = constraint_for(kind, circle, right_half)
-    a = run(method, model, normalizer, constraint, jax.random.key(0))
-    b = run(method, model, normalizer, constraint, jax.random.key(1))
-    assert not jnp.allclose(a.x, b.x)
 
 
 @pytest.mark.parametrize("method", ALL, ids=IDS)
@@ -118,18 +117,12 @@ CONSTRAINED = [m for m in ALL if m.name != "unconstrained"]
     "method", CONSTRAINED, ids=[m.name for m in CONSTRAINED]
 )
 def test_reduces_violation_vs_unconstrained(
-    method, model, normalizer, circle, right_half, rng
+    method, result_for, unconstrained
 ):
     """Every method must beat the unconstrained flow on its own constraint."""
-    kind = EQUALITY if EQUALITY in method.supports else INEQUALITY
-    constraint = constraint_for(kind, circle, right_half)
+    constraint, out = result_for(method)
 
-    base = generate_unconstrained(
-        model, normalizer, num_samples=NUM_SAMPLES, dt=DT, rng=rng
-    )
-    out = run(method, model, normalizer, constraint, rng)
-
-    baseline = float(jnp.mean(constraint.violations(base.x)))
+    baseline = float(jnp.mean(constraint.violations(unconstrained.x)))
     achieved = float(jnp.mean(constraint.violations(out.x)))
     assert achieved < baseline, (
         f"{method.name}: violation {achieved:.3e} did not improve on the "
@@ -137,15 +130,15 @@ def test_reduces_violation_vs_unconstrained(
     )
 
 
-def test_ldf_beats_penalty_only(model, normalizer, circle, rng):
+def test_ldf_beats_penalty_only(result_for):
     """The dual dynamics must earn their keep.
 
     This is the guard against a regression that silently zeroes lambda: with
     rescale_factor = 0 the flow is a pure penalty, and LDF should be clearly
     tighter. Measured at 15.8x on the trained star model.
     """
-    ldf = run(methods.LDF, model, normalizer, circle, rng)
-    penalty = run(methods.PENALTY, model, normalizer, circle, rng)
+    circle, ldf = result_for(methods.LDF)
+    _, penalty = result_for(methods.PENALTY)
 
     v_ldf = float(jnp.mean(circle.violations(ldf.x)))
     v_pen = float(jnp.mean(circle.violations(penalty.x)))
@@ -155,13 +148,45 @@ def test_ldf_beats_penalty_only(model, normalizer, circle, rng):
     )
 
 
-def test_penalty_only_freezes_multipliers(model, normalizer, circle, rng):
+def test_penalty_only_freezes_multipliers(
+    model, normalizer, circle, result_for
+):
     """rescale_factor = 0 must be exactly what the penalty ablation runs."""
-    from cfm.methods import ldf as ldf_module
-
-    explicit = ldf_module.generate(
-        model, normalizer, circle, num_samples=NUM_SAMPLES, dt=DT, rng=rng,
+    explicit = generate(
+        model, normalizer, circle, num_samples=NUM_SAMPLES, dt=DT, seed=SEED,
         penalty_weight=PENALTY_WEIGHT, rescale_factor=0.0,
     )
-    ablation = run(methods.PENALTY, model, normalizer, circle, rng)
+    _, ablation = result_for(methods.PENALTY)
     assert jnp.array_equal(explicit.x, ablation.x)
+
+
+# ---------------------------------------------------------------------------
+# Seeding. Shared by every method through cfm.core.solve, so it is tested
+# there directly and end-to-end through one method rather than all six.
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_rng_prefers_an_explicit_key():
+    key = jax.random.key(7)
+    assert jnp.array_equal(resolve_rng(key, 0), key)
+    assert jnp.array_equal(resolve_rng(None, 7), key)
+
+
+def test_initial_noise_depends_on_the_seed():
+    a = initial_noise(resolve_rng(None, 0), 4, (2,))
+    b = initial_noise(resolve_rng(None, 1), 4, (2,))
+    assert a.shape == (4, 2)
+    assert not jnp.allclose(a, b)
+
+
+def test_generation_is_reproducible_from_a_seed(model, normalizer, circle):
+    """Same seed, same samples; different seed, different samples."""
+    kwargs = dict(
+        num_samples=NUM_SAMPLES, dt=DT, penalty_weight=PENALTY_WEIGHT
+    )
+    a = generate(model, normalizer, circle, seed=SEED, **kwargs)
+    b = generate(model, normalizer, circle, seed=SEED, **kwargs)
+    c = generate(model, normalizer, circle, seed=SEED + 1, **kwargs)
+
+    assert jnp.array_equal(a.x, b.x)
+    assert not jnp.allclose(a.x, c.x)
