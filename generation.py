@@ -223,6 +223,7 @@ def generate_inequality_constrained(
     penalty_weight: float = 5.0,
     rescale_factor: float = 10.0,
     slack: str = "closed_form",
+    num_projection_iters: int = 0,
     solver: diffrax.AbstractSolver = diffrax.Midpoint(),
     stepsize_controller: diffrax.AbstractStepSizeController = (
         diffrax.ConstantStepSize()
@@ -270,6 +271,10 @@ def generate_inequality_constrained(
             multiplier flow.
         slack: How to handle the slack variable, ``"closed_form"`` (default)
             or ``"ode"``. See above.
+        num_projection_iters: Number of Gauss-Newton iterations used to
+            project the final samples onto the feasible set ``h(x) <= 0``.
+            Zero (the default) returns the samples produced by the flow
+            as-is.
         solver: diffrax solver to use. Defaults to ``Midpoint()``.
         stepsize_controller: diffrax step-size controller. Defaults to
             ``ConstantStepSize()``. Pass a ``PIDController`` for adaptive
@@ -294,6 +299,30 @@ def generate_inequality_constrained(
         x = x_flat.reshape(data_shape)
         x = normalizer.unnormalize(x)
         return jnp.atleast_1d(penalty_weight * constraint_fn(x))
+
+    def _project(x_flat):
+        """Project a single flat sample onto h(x) <= 0 with Gauss-Newton.
+
+        Each pass linearises only the violated constraints and takes the
+        min-norm step that zeroes them, landing on the boundary of the
+        feasible set. Constraints that are already satisfied are masked out
+        so the projection leaves feasible samples untouched.
+        """
+        eps_reg = 1e-10  # Tikhonov regulariser on J J^T.
+
+        def _step(x_flat, _):
+            h = _h(x_flat)
+            J = jax.jacobian(_h)(x_flat)  # (m, n)
+            active = h > 0.0
+            J_act = jnp.where(active[:, None], J, 0.0)
+            r = jnp.where(active, h, 0.0)
+            z = jnp.linalg.solve(
+                J_act @ J_act.T + eps_reg * jnp.eye(h.shape[0]), r
+            )
+            return x_flat - J_act.T @ z, None
+
+        x_flat, _ = jax.lax.scan(_step, x_flat, length=num_projection_iters)
+        return x_flat
 
     def _model_terms(t, x):
         """Vector field and flattened views used by both formulations."""
@@ -371,6 +400,12 @@ def generate_inequality_constrained(
     print(solution.stats["num_steps"], "steps taken")
     xs = solution.ys[0]
     x = xs[-1]
+
+    # Optionally polish the samples with a Gauss-Newton projection, removing
+    # the residual constraint violation left by the finite-time flow.
+    if num_projection_iters > 0:
+        x = jax.vmap(lambda x_i: _project(x_i.ravel()))(x).reshape(x.shape)
+        xs = xs.at[-1].set(x)
 
     # All trajectories are in normalized space, so unnormalize before returning.
     return normalizer.unnormalize(x), normalizer.unnormalize(xs)

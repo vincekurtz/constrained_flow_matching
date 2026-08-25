@@ -239,6 +239,7 @@ if args.generate_constrained:
             penalty_weight=penalty_weight,
             rescale_factor=rescale_factor,
             slack=args.slack,
+            num_projection_iters=5,
         )
         title = "Obstacle Constraints"
     print("With obstacle constraints:")
