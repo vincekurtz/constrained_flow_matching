@@ -77,6 +77,7 @@ if args.generate_constrained:
         dt=0.01,
         penalty_weight=5.0,
         rescale_factor=1.0,
+        num_projection_iters=2,
     )
 
     # Report constraint violation statistics.

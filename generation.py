@@ -82,6 +82,7 @@ def generate_constrained(
     penalty_weight: float = 5.0,
     rescale_factor: float = 1.0,
     rescale_exponent: float = 2.0,
+    num_projection_iters: int = 0,
     solver: diffrax.AbstractSolver = diffrax.Midpoint(),
     stepsize_controller: diffrax.AbstractStepSizeController = (
         diffrax.ConstantStepSize()
@@ -107,6 +108,9 @@ def generate_constrained(
             multiplier flow. This can help enforce the constraint more strictly
             but leads to a stiffer ODE.
         rescale_exponent: Exponent for the rescaling factor (p).
+        num_projection_iters: Number of Gauss-Newton iterations used to
+            project the final samples onto the constraint manifold. Zero
+            (the default) returns the samples produced by the flow as-is.
         solver: diffrax solver to use. Defaults to ``Midpoint()``.
         stepsize_controller: diffrax step-size controller. Defaults to
             ``ConstantStepSize()``. Pass a ``PIDController`` for adaptive
@@ -128,6 +132,24 @@ def generate_constrained(
         x = x.reshape(data_shape)
         x = normalizer.unnormalize(x)
         return jnp.atleast_1d(penalty_weight * constraint_fn(x))
+
+    def _project(x_flat):
+        """Project a single flat sample onto g(x) = 0 with Gauss-Newton.
+
+        Each iteration takes the minimum-norm step that zeroes the linearised
+        residual, x <- x - J^T (J J^T)^{-1} g(x). One step overshoots badly
+        for strongly nonlinear constraints, so we iterate.
+        """
+        eps_reg = 1e-10  # Tikhonov regulariser on J J^T.
+
+        def _step(x_flat, _):
+            r = _g(x_flat)
+            J = jax.jacobian(_g)(x_flat)  # (m, n)
+            z = jnp.linalg.solve(J @ J.T + eps_reg * jnp.eye(r.shape[0]), r)
+            return x_flat - J.T @ z, None
+
+        x_flat, _ = jax.lax.scan(_step, x_flat, length=num_projection_iters)
+        return x_flat
 
     def _ode_fn(t, y, args):
         """Batched constrained dynamics for the primal-dual flow."""
@@ -179,6 +201,12 @@ def generate_constrained(
         num_steps = None
         x = jnp.full((num_samples,) + data_shape, nan)
         xs = jnp.full((len(save_ts) + 1, num_samples) + data_shape, nan)
+
+    # Optionally polish the samples with a Gauss-Newton projection, removing
+    # the residual constraint violation left by the finite-time flow.
+    if num_projection_iters > 0 and num_steps is not None:
+        x = jax.vmap(lambda x_i: _project(x_i.ravel()))(x).reshape(x.shape)
+        xs = xs.at[-1].set(x)
 
     # All trajectories are in normalized space, so unnormalize before returning.
     return normalizer.unnormalize(x), normalizer.unnormalize(xs), num_steps
