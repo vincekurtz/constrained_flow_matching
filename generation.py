@@ -191,6 +191,7 @@ def generate_inequality_constrained(
     num_samples: int = 1000,
     dt: float = 0.01,
     seed: int = 0,
+    rng: jax.Array = None,
     penalty_weight: float = 5.0,
     rescale_factor: float = 10.0,
     slack: str = "closed_form",
@@ -231,7 +232,10 @@ def generate_inequality_constrained(
             May return a scalar or a 1-D array.
         num_samples: Number of samples to generate.
         dt: Initial step size hint for the adaptive integrator.
-        seed: Random seed for the initial noise.
+        seed: Random seed for the initial noise. Ignored when ``rng`` is
+            given.
+        rng: PRNG key for the initial noise. Defaults to
+            ``jax.random.key(seed)`` when not provided.
         penalty_weight: Strength of the quadratic penalty pulling samples
             toward the constraint manifold.
         rescale_factor: Factor by which to rescale the time for the Lagrange
@@ -253,7 +257,8 @@ def generate_inequality_constrained(
             f"slack must be 'closed_form' or 'ode', got {slack!r}"
         )
 
-    rng = jax.random.key(seed)
+    if rng is None:
+        rng = jax.random.key(seed)
     data_shape = model.data_shape
 
     def _h(x_flat):

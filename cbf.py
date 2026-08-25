@@ -43,6 +43,7 @@ A terminal safety filter runs after the integration to mop up whatever
 violation the numerics leave behind at ``t = 1``.
 """
 
+import math
 from typing import Callable, Tuple
 
 import diffrax
@@ -62,6 +63,7 @@ def generate_cbf(
     num_samples: int = 1000,
     dt: float = 0.01,
     seed: int = 0,
+    rng: jax.Array = None,
     phi0: float = 1.0,
     omega: float = 4.0,
     qp: str = "exact",
@@ -96,7 +98,10 @@ def generate_cbf(
             return a scalar or a 1-D array.
         num_samples: Number of samples to generate.
         dt: Step size (or initial step size hint for adaptive controllers).
-        seed: Random seed for the initial noise.
+        seed: Random seed for the initial noise. Ignored when ``rng`` is
+            given.
+        rng: PRNG key for the initial noise. Defaults to
+            ``jax.random.key(seed)`` when not provided.
         phi0: Class-K gain used where the sample is feasible. Larger values
             let the flow approach the constraint boundary more freely.
         omega: Gain of the blow-up schedule ``omega / (1 - t)^2`` used where
@@ -131,9 +136,10 @@ def generate_cbf(
     if qp not in ("exact", "elastic"):
         raise ValueError(f'qp must be "exact" or "elastic", got {qp!r}')
 
-    rng = jax.random.key(seed)
+    if rng is None:
+        rng = jax.random.key(seed)
     data_shape = model.data_shape
-    num_vars = int(jnp.prod(jnp.array(data_shape)))
+    num_vars = math.prod(data_shape)  # plain int: QP shapes need it static
     std_flat = jnp.broadcast_to(normalizer.std, data_shape).ravel()
 
     def _h(x_state_flat: jax.Array) -> jax.Array:

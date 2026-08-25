@@ -1,8 +1,18 @@
 """Benchmark constrained generation algorithms one sample at a time.
 
-Loads a pretrained model (star or MNIST), JIT-compiles a single-sample
-generator for the chosen method, and reports per-sample wall-clock time
-and constraint violation.
+Loads a pretrained model (star, MNIST, or obstacle avoidance), JIT-compiles a
+single-sample generator for the chosen method, and reports per-sample
+wall-clock time and constraint violation.
+
+Not every method handles every example. The star and MNIST constraints are
+equalities, which the CBF safety filter does not support; the obstacle
+constraint is an inequality, which PCFM and PiGDM do not support:
+
+    example     | ours | pigdm | pcfm | cbf
+    ------------+------+-------+------+-----
+    star        |  x   |   x   |  x   |
+    mnist       |  x   |   x   |  x   |
+    obstacle    |  x   |       |      |  x
 
 Usage examples:
 
@@ -11,6 +21,8 @@ Usage examples:
         --guidance-scale 1.0 --eps-reg 1e-4
     python benchmark.py --example mnist --method ours --num-samples 5 \\
         --penalty-weight 10.0 --rescale-factor 1.0
+    python benchmark.py --example obstacle --method cbf --num-samples 20 \\
+        --num-obstacles 2 --scene-seed 0
 """
 
 import argparse
@@ -19,21 +31,43 @@ import time
 from pathlib import Path
 
 import cloudpickle
+import diffrax
 import jax
 import jax.numpy as jnp
 
+from cbf import generate_cbf
 from datasets.mnist import MNISTDataset
-from generation import generate_constrained
+from examples.obstacle_scene import (
+    SLACK_GAINS,
+    make_constraint_fn,
+    sample_scene,
+)
+from generation import generate_constrained, generate_inequality_constrained
 from pcfm import generate_pcfm
 from pi_gdm import generate_pigdm
 
+# Which methods can handle each example's constraint. The CBF safety filter
+# only supports inequalities, and PCFM / PiGDM only support equalities.
+SUPPORTED_METHODS = {
+    "star": ("ours", "pigdm", "pcfm"),
+    "mnist": ("ours", "pigdm", "pcfm"),
+    "obstacle": ("ours", "cbf"),
+}
 
-def build_constraint(example: str):
+# Defaults for our method's gains, per example. The obstacle scene puts many
+# constraints in play at once and needs much stiffer settings than the star and
+# MNIST constraints do; --penalty-weight / --rescale-factor override either.
+DEFAULT_GAINS = {"penalty_weight": 5.0, "rescale_factor": 1.0}
+
+
+def build_constraint(example: str, args):
     """Return (constraint_fn, scalar_violation_fn) for the given example.
 
     The constraint_fn operates on a single *unnormalized* sample and matches
     the convention used by the generation algorithms. The violation_fn maps
-    a single sample to a scalar magnitude for reporting.
+    a single sample to a scalar magnitude for reporting: the residual
+    magnitude for an equality constraint, and the amount by which the
+    inequality is exceeded for an inequality one.
     """
     if example == "star":
         def unit_circle_constraint(x):
@@ -63,12 +97,60 @@ def build_constraint(example: str):
 
         return inpainting_constraint, violation_fn
 
+    if example == "obstacle":
+        # Obstacle avoidance h(x) <= 0 on a freshly sampled scene, identical
+        # to the constraint used in examples/obstacles.py.
+        centers, radii = sample_scene(args.scene_seed, args.num_obstacles)
+        obstacle_constraint = make_constraint_fn(centers, radii)
+
+        def violation_fn(x):
+            return jnp.max(jnp.maximum(obstacle_constraint(x), 0.0))
+
+        return obstacle_constraint, violation_fn
+
     raise ValueError(f"Unknown example: {example}")
+
+
+def resolve_gains(args):
+    """Return (penalty_weight, rescale_factor) for our method."""
+    defaults = (
+        SLACK_GAINS[args.slack] if args.example == "obstacle"
+        else DEFAULT_GAINS
+    )
+    penalty_weight = (
+        args.penalty_weight if args.penalty_weight is not None
+        else defaults["penalty_weight"]
+    )
+    rescale_factor = (
+        args.rescale_factor if args.rescale_factor is not None
+        else defaults["rescale_factor"]
+    )
+    return penalty_weight, rescale_factor
 
 
 def build_generator(method: str, model, normalizer, constraint_fn, args):
     """JIT-compile a function ``rng -> single_sample`` for the chosen method."""
     if method == "ours":
+        penalty_weight, rescale_factor = resolve_gains(args)
+
+        if args.example == "obstacle":
+            # The obstacle constraint is an inequality, so it goes through the
+            # slack formulation rather than the equality flow.
+            def _gen(rng):
+                x, _ = generate_inequality_constrained(
+                    model,
+                    normalizer,
+                    constraint_fn,
+                    num_samples=1,
+                    dt=args.dt,
+                    rng=rng,
+                    penalty_weight=penalty_weight,
+                    rescale_factor=rescale_factor,
+                    slack=args.slack,
+                )
+                return x[0]
+            return jax.jit(_gen)
+
         def _gen(rng):
             x, _, _ = generate_constrained(
                 model,
@@ -77,9 +159,43 @@ def build_generator(method: str, model, normalizer, constraint_fn, args):
                 num_samples=1,
                 dt=args.dt,
                 rng=rng,
-                penalty_weight=args.penalty_weight,
-                rescale_factor=args.rescale_factor,
+                penalty_weight=penalty_weight,
+                rescale_factor=rescale_factor,
                 rescale_exponent=args.rescale_exponent,
+            )
+            return x[0]
+        return jax.jit(_gen)
+
+    if method == "cbf":
+        # SafeFlow's Algorithm 1 integrates with an embedded RK pair and error
+        # control, which --adaptive reproduces. The omega / (1 - t)^2 schedule
+        # is genuinely stiff at the end of the horizon, so the fixed midpoint
+        # steps used elsewhere are not always enough to hold on to it.
+        integrator = (
+            {
+                "solver": diffrax.Tsit5(),
+                "stepsize_controller": diffrax.PIDController(
+                    rtol=1e-5, atol=1e-7
+                ),
+            }
+            if args.adaptive
+            else {}
+        )
+
+        def _gen(rng):
+            x, _ = generate_cbf(
+                model,
+                normalizer,
+                constraint_fn,
+                num_samples=1,
+                dt=args.dt,
+                rng=rng,
+                phi0=args.phi0,
+                omega=args.omega,
+                qp=args.qp,
+                qp_penalty=args.qp_penalty,
+                num_terminal_iters=args.num_terminal_iters,
+                **integrator,
             )
             return x[0]
         return jax.jit(_gen)
@@ -121,15 +237,21 @@ def build_generator(method: str, model, normalizer, constraint_fn, args):
 
 
 def main():
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument(
-        "--example", choices=["star", "mnist"], required=True,
-        help="Which pretrained model + constraint to benchmark."
+    parser = argparse.ArgumentParser(
+        description=__doc__,
+        formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument(
-        "--method", choices=["ours", "pigdm", "pcfm"], required=True,
-        help="ours = primal-dual generate_constrained; "
-             "pigdm = PiGDM; pcfm = Physics-Constrained Flow Matching."
+        "--example", choices=["star", "mnist", "obstacle"], required=True,
+        help="Which pretrained model + constraint to benchmark. star and "
+             "mnist impose equality constraints, obstacle an inequality."
+    )
+    parser.add_argument(
+        "--method", choices=["ours", "pigdm", "pcfm", "cbf"], required=True,
+        help="ours = primal-dual flow; pigdm = PiGDM; pcfm = "
+             "Physics-Constrained Flow Matching; cbf = SafeFlow control "
+             "barrier function filter (inequality constraints only, so "
+             "--example obstacle)."
     )
     parser.add_argument("--num-samples", type=int, default=20)
     parser.add_argument("--seed", type=int, default=0,
@@ -140,13 +262,20 @@ def main():
                         help="If set, save per-sample timings, violations, "
                              "and hyperparameters as JSON for later plotting.")
 
-    # Diffrax step size (used by pd and pigdm).
+    # Diffrax step size (used by ours, pigdm, and cbf).
     parser.add_argument("--dt", type=float, default=0.01)
 
-    # Primal-dual (generate_constrained).
-    parser.add_argument("--penalty-weight", type=float, default=5.0)
-    parser.add_argument("--rescale-factor", type=float, default=1.0)
-    parser.add_argument("--rescale-exponent", type=float, default=2.0)
+    # Primal-dual (ours). The penalty and rescale defaults depend on the
+    # example; see DEFAULT_GAINS and SLACK_GAINS.
+    parser.add_argument("--penalty-weight", type=float, default=None)
+    parser.add_argument("--rescale-factor", type=float, default=None)
+    parser.add_argument("--rescale-exponent", type=float, default=2.0,
+                        help="Equality-constrained flow only.")
+    parser.add_argument(
+        "--slack", choices=["closed_form", "ode"], default="closed_form",
+        help="How the inequality solver handles the slack variable "
+             "(--example obstacle only)."
+    )
 
     # PiGDM.
     parser.add_argument("--guidance-scale", type=float, default=1.0)
@@ -163,7 +292,51 @@ def main():
     parser.add_argument("--pcfm-eps-reg", type=float, default=1e-10,
                         help="Tikhonov regulariser for PCFM projection solve.")
 
+    # CBF safety filter (SafeFlow).
+    parser.add_argument("--phi0", type=float, default=1.0,
+                        help="Class-K gain used where the sample is feasible.")
+    parser.add_argument("--omega", type=float, default=4.0,
+                        help="Blow-up gain omega / (1 - t)^2 used where the "
+                             "sample is infeasible.")
+    parser.add_argument("--qp", choices=["exact", "elastic"],
+                        default="elastic",
+                        help="Solve the CBF quadratic program in its elastic "
+                             "relaxation (default), which tolerates mutually "
+                             "infeasible barrier conditions, or exactly as "
+                             "written, which raises when they cannot all be "
+                             "met at once -- as happens on many samples of "
+                             "the obstacle scene.")
+    parser.add_argument("--qp-penalty", type=float, default=1e4,
+                        help="Price per unit of barrier-condition violation "
+                             "(--qp elastic only).")
+    parser.add_argument("--num-terminal-iters", type=int, default=20,
+                        help="Gauss-Newton iterations for the terminal safety "
+                             "filter at t = 1. 0 disables it.")
+    parser.add_argument("--adaptive", action="store_true",
+                        help="Integrate the CBF flow with Tsit5 and PID error "
+                             "control instead of fixed midpoint steps, as in "
+                             "SafeFlow's Algorithm 1.")
+
+    # Obstacle-avoidance scene.
+    parser.add_argument("--num-obstacles", type=int, default=2,
+                        help="Number of obstacles in the test scene "
+                             "(--example obstacle only).")
+    parser.add_argument("--scene-seed", type=int, default=0,
+                        help="Random seed for the test scene "
+                             "(--example obstacle only).")
+
     args = parser.parse_args()
+
+    if args.method not in SUPPORTED_METHODS[args.example]:
+        parser.error(
+            f"method {args.method!r} does not support example "
+            f"{args.example!r}; supported methods are "
+            f"{', '.join(SUPPORTED_METHODS[args.example])}."
+        )
+
+    # Fill in the example-dependent gain defaults now, so that --out records
+    # the values actually used rather than a null.
+    args.penalty_weight, args.rescale_factor = resolve_gains(args)
 
     save_path = (Path(args.save_path) if args.save_path
                  else Path(f"data/{args.example}_model.pkl"))
@@ -173,7 +346,7 @@ def main():
     model = data["model"]
     normalizer = data["normalizer"]
 
-    constraint_fn, violation_fn = build_constraint(args.example)
+    constraint_fn, violation_fn = build_constraint(args.example, args)
     gen = build_generator(args.method, model, normalizer, constraint_fn, args)
 
     base_rng = jax.random.key(args.seed)
