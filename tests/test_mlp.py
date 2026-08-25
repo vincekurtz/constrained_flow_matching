@@ -1,7 +1,7 @@
 import jax.numpy as jnp
 from flax import nnx
 
-from architectures.mlp import MLP
+from cfm.models.mlp import MLP
 
 
 def test_output_shape():

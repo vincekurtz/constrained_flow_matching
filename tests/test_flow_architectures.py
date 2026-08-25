@@ -1,8 +1,8 @@
 import jax.numpy as jnp
 from flax import nnx
 
-from architectures.flow import FlowMLP, SinusoidalPosEmb
-from architectures.unet import FlowUNet
+from cfm.models.flow import FlowMLP, SinusoidalPosEmb
+from cfm.models.unet import FlowUNet
 
 
 # ---------------------------------------------------------------------------

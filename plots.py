@@ -18,33 +18,54 @@ import time
 from pathlib import Path
 import diffrax
 
-import cloudpickle
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
 
-from datasets.mnist import MNISTDataset
-from generation import (
-    generate,
-    generate_constrained,
-    generate_inequality_constrained,
-)
-from pcfm import generate_pcfm
-from pi_gdm import generate_pigdm
+import problems
+from cfm import methods
+from cfm.core import checkpoint
+from cfm.methods import ldf
+from cfm.methods.ldf import generate_unconstrained
+from cfm.methods.pcfm import generate_pcfm
+from cfm.methods.pigdm import generate_pigdm
 
 
 DATA_DIR = Path("plots/data")
 FIG_DIR = Path("plots/figures")
-MODEL_DIR = Path("data")
 
-METHODS = ("ours", "pigdm", "pcfm")
-METHOD_COLORS = {"ours": "C0", "pigdm": "C1", "pcfm": "C2"}
-METHOD_NAMES = {
-    "ours": "Dual Flow (ours)",
-    "pigdm": "Pseudoinverse Guidance",
-    "pcfm": "Physics-Constrained",
-}
+# Which methods appear in the comparison figures, in plotting order. Labels
+# come from the registry so a rename lands here too.
+METHODS = ("ldf", "pigdm", "pcfm")
+METHOD_COLORS = {"ldf": "C0", "pigdm": "C1", "pcfm": "C2", "penalty": "C3"}
+METHOD_NAMES = {name: methods.get(name).label for name in METHODS}
+
+# Cached raw data written before the ours -> ldf rename still uses the old
+# key. Read-side alias only; drop it once the figures have been regenerated.
+LEGACY_METHOD_KEYS = {"ours": "ldf"}
+
+
+def _canonical_method(key):
+    return LEGACY_METHOD_KEYS.get(key, key)
+
+
+def _cached(container, method):
+    """Read a method's entry from cached raw data.
+
+    Data written before the ours -> ldf rename is keyed on the old name;
+    fall back to it so existing caches still render. Regenerating writes the
+    new key, after which the fallback is dead.
+    """
+    if method in container:
+        return container[method]
+    for old, new in LEGACY_METHOD_KEYS.items():
+        if new == method and old in container:
+            return container[old]
+    raise KeyError(
+        f"no cached data for method {method!r} (have: "
+        f"{', '.join(sorted(container))}); re-run with --regenerate"
+    )
 
 # Set uniform font size and serif font style
 plt.rcParams.update(
@@ -61,114 +82,71 @@ def _ensure_dirs() -> None:
 
 
 def _load_model(example: str):
-    with open(MODEL_DIR / f"{example}_model.pkl", "rb") as f:
-        d = cloudpickle.load(f)
-    return d["model"], d["normalizer"]
+    """Load a trained model by problem name."""
+    return checkpoint.load(problems.get(example).checkpoint_path)
 
 
-# ---- constraints ---------------------------------------------------------
+# Constraints come from the problem registry, so the figures, the benchmark
+# and the examples all impose exactly the same thing. These used to be three
+# separate definitions.
+def _constraint(example):
+    return problems.get(example).make_constraint()
 
 
-def _unit_circle_constraint(x):
-    return jnp.sum(x**2, axis=-1) - 1.0
+CIRCLE = None  # built lazily; see _circle()
+RIGHT_HALF = None
 
 
-def _right_half_constraint(x):
-    """Inequality h(x) = -x[0] <= 0."""
-    return -x[0]
+def _circle():
+    """The unit-norm equality constraint used by the star figures."""
+    global CIRCLE
+    if CIRCLE is None:
+        CIRCLE = problems.get("star").make_constraint()
+    return CIRCLE
 
 
-def _build_mnist_inpaint():
-    """Top-half inpainting constraint matching examples/mnist.py."""
-    ds = MNISTDataset(train=False, digit=5)
-    reference = jnp.array(ds[0])
-    mask = jnp.zeros((28, 28, 1), dtype=bool).at[:14, :, :].set(True)
-    observed_indices = jnp.where(mask.ravel())[0]
-    y = reference.ravel()[observed_indices]
-    A = jnp.eye(28 * 28 * 1)[observed_indices]
-
-    def inpaint(x):
-        return A @ x.ravel() - y
-
-    return inpaint, reference, mask
+def _right_half():
+    """The right-half-plane inequality used by the inequality figure."""
+    global RIGHT_HALF
+    if RIGHT_HALF is None:
+        RIGHT_HALF = problems.get("unit_circle").make_constraint(
+            constraint="right_half"
+        )
+    return RIGHT_HALF
 
 
 def _get_constraint(example):
-    if example == "star":
-        return _unit_circle_constraint, lambda x: float(
-            jnp.abs(_unit_circle_constraint(x))
-        )
-    if example == "mnist":
-        inpaint, _, _ = _build_mnist_inpaint()
-        return inpaint, lambda x: float(jnp.max(jnp.abs(inpaint(x))))
-    raise ValueError(example)
+    """(constraint, scalar violation fn) for one problem."""
+    c = _constraint(example)
+    return c, lambda x: float(c.violation(x))
 
 
 # ---- per-sample timing ---------------------------------------------------
 
 
-def _make_single_sample_fn(
-    method,
-    example,
-    *,
-    dt,
-    num_steps,
-    penalty_weight=5.0,
-    rescale_factor=1.0,
-    rescale_exponent=2.0,
-    guidance_scale=1.0,
-    eps_reg=1e-4,
-    pcfm_penalty_weight=0.0,
-    num_final_projection_iters=20,
-):
+def _make_single_sample_fn(method, example, *, dt, num_steps, **overrides):
+    """JIT a ``rng -> single sample`` function for one method and problem.
+
+    This was a near-copy of ``benchmark.py:build_generator``; both now go
+    through the method registry, so the figures and the table cannot drift
+    apart in how they invoke a method.
+    """
     model, normalizer = _load_model(example)
-    constraint_fn, _ = _get_constraint(example)
+    problem = problems.get(example)
+    constraint = _constraint(example)
+    spec = methods.get(_canonical_method(method))
 
-    if method == "ours":
-
-        def _gen(rng):
-            x, _, _ = generate_constrained(
-                model,
-                normalizer,
-                constraint_fn,
-                num_samples=1,
-                dt=dt,
-                rng=rng,
-                penalty_weight=penalty_weight,
-                rescale_factor=rescale_factor,
-                rescale_exponent=rescale_exponent,
-            )
-            return x[0]
-    elif method == "pigdm":
-
-        def _gen(rng):
-            x, _ = generate_pigdm(
-                model,
-                normalizer,
-                constraint_fn,
-                num_samples=1,
-                dt=dt,
-                rng=rng,
-                guidance_scale=guidance_scale,
-                eps_reg=eps_reg,
-            )
-            return x[0]
-    elif method == "pcfm":
-
-        def _gen(rng):
-            x, _ = generate_pcfm(
-                model,
-                normalizer,
-                constraint_fn,
-                num_samples=1,
-                num_steps=num_steps,
-                rng=rng,
-                penalty_weight=pcfm_penalty_weight,
-                num_final_projection_iters=num_final_projection_iters,
-            )
-            return x[0]
+    cfg = problem.gains_for(spec.name)
+    cfg.update({k: v for k, v in overrides.items() if v is not None})
+    if spec.name in methods.USES_DT:
+        cfg["dt"] = dt
     else:
-        raise ValueError(method)
+        cfg["num_steps"] = num_steps
+
+    def _gen(rng):
+        return spec.run(
+            model, normalizer, constraint, num_samples=1, rng=rng, **cfg
+        ).x[0]
 
     return jax.jit(_gen)
 
@@ -239,8 +217,9 @@ def plot_generation_times(regenerate: bool = False, num_samples: int = 20):
         print(header)
         for method in METHODS:
             for label in ("fine", "coarse"):
-                times = results[example][method][label]["times"]
-                violations = results[example][method][label]["violations"]
+                entry = _cached(results[example], method)[label]
+                times = entry["times"]
+                violations = entry["violations"]
                 mean_sec = sum(times) / len(times)
                 v_mean = np.nanmean(violations)
                 v_min = min(violations)
@@ -257,7 +236,8 @@ def plot_generation_times(regenerate: bool = False, num_samples: int = 20):
         for method in METHODS:
             for label in ("fine", "coarse"):
                 data.append(
-                    [t * 1000 for t in results[example][method][label]["times"]]
+                    [t * 1000
+                     for t in _cached(results[example], method)[label]["times"]]
                 )
                 labels.append(f"{method}\n{label}")
                 positions.append(x)
@@ -310,10 +290,10 @@ def plot_violation_vs_penalty(
         for exp_val, key in ((1.0, "exp1"), (2.0, "exp2")):
             violations = []
             for pw in penalties:
-                x, _, _ = generate_constrained(
+                x, _, _ = ldf.generate(
                     model,
                     normalizer,
-                    _unit_circle_constraint,
+                    _circle(),
                     num_samples=num_samples,
                     dt=dt,
                     penalty_weight=pw,
@@ -325,7 +305,7 @@ def plot_violation_vs_penalty(
                     ),
                 )
                 violations.append(
-                    float(jnp.mean(jnp.abs(_unit_circle_constraint(x))))
+                    float(jnp.mean(jnp.abs(_circle().fn(x))))
                 )
                 print(
                     f"  exp={exp_val}, penalty={pw}, violation={violations[-1]}"
@@ -400,14 +380,10 @@ def plot_mnist_violation_vs_penalty(
     if regenerate or not data_file.exists():
         print("[mnist_violation_vs_penalty] regenerating raw data ...")
         model, normalizer = _load_model("mnist")
-        inpaint, _, _ = _build_mnist_inpaint()
+        inpaint = _constraint("mnist")
 
         def _violation(x):
-            return float(
-                jnp.mean(
-                    jax.vmap(lambda xi: jnp.max(jnp.abs(inpaint(xi))))(x)
-                )
-            )
+            return float(jnp.mean(inpaint.violations(x)))
 
         results = {
             "penalties": penalties,
@@ -417,7 +393,7 @@ def plot_mnist_violation_vs_penalty(
         for key, _, solver, controller in configs:
             violations = []
             for pw in penalties:
-                x, _, _ = generate_constrained(
+                x, _, _ = ldf.generate(
                     model,
                     normalizer,
                     inpaint,
@@ -480,26 +456,26 @@ def plot_constrained_star(
         print("[constrained_star] regenerating raw data ...")
         model, normalizer = _load_model("star")
         data = {}
-        x_unc, xs_unc = generate(
+        x_unc, xs_unc, _ = generate_unconstrained(
             model, normalizer, num_samples=num_samples, dt=0.01
         )
         data["unconstrained"] = {
             "x": np.asarray(x_unc), "xs": np.asarray(xs_unc)
         }
-        x, xs, _ = generate_constrained(
+        x, xs, _ = ldf.generate(
             model,
             normalizer,
-            _unit_circle_constraint,
+            _circle(),
             num_samples=num_samples,
             dt=0.01,
             penalty_weight=5.0,
             rescale_factor=1.0,
         )
-        data["ours"] = {"x": np.asarray(x), "xs": np.asarray(xs)}
+        data["ldf"] = {"x": np.asarray(x), "xs": np.asarray(xs)}
         x, xs = generate_pigdm(
             model,
             normalizer,
-            _unit_circle_constraint,
+            _circle().fn,
             num_samples=num_samples,
             dt=0.01,
             guidance_scale=1.0,
@@ -509,7 +485,7 @@ def plot_constrained_star(
         x, xs = generate_pcfm(
             model,
             normalizer,
-            _unit_circle_constraint,
+            _circle().fn,
             num_samples=num_samples,
             num_steps=100,
         )
@@ -526,7 +502,7 @@ def plot_constrained_star(
     ]
     fig, axes = plt.subplots(2, 4, figsize=(16, 8), sharex=True, sharey=True)
     for col, (key, title, color) in enumerate(all_keys):
-        d = data[key]
+        d = _cached(data, key)
         x, xs = d["x"], d["xs"]
 
         ax = axes[0, col]
@@ -583,22 +559,25 @@ def plot_constrained_mnist(
     if regenerate or not data_file.exists():
         print("[constrained_mnist] regenerating raw data ...")
         model, normalizer = _load_model("mnist")
-        inpaint, reference, mask = _build_mnist_inpaint()
+        from problems.mnist import _reference_and_mask
+
+        inpaint = _constraint("mnist")
+        reference, mask = _reference_and_mask()
         data = {"reference": np.asarray(reference), "mask": np.asarray(mask)}
-        x, _ = generate(
+        x, _, _ = generate_unconstrained(
             model, normalizer, num_samples=num_samples, dt=0.01
         )
         data["unconstrained"] = np.asarray(jnp.clip(x, 0.0, 1.0))
-        x, _, _ = generate_constrained(
+        x, _, _ = ldf.generate(
             model,
             normalizer,
-            inpaint,
+            _constraint("mnist"),
             num_samples=num_samples,
             dt=0.01,
             penalty_weight=10.0,
             rescale_factor=1.0,
         )
-        data["ours"] = np.asarray(jnp.clip(x, 0.0, 1.0))
+        data["ldf"] = np.asarray(jnp.clip(x, 0.0, 1.0))
         x, _ = generate_pigdm(
             model,
             normalizer,
@@ -629,7 +608,7 @@ def plot_constrained_mnist(
 
     panels = [
         ("unconstrained", "Unconstrained"),
-        ("ours", METHOD_NAMES["ours"]),
+        ("ldf", METHOD_NAMES["ldf"]),
         ("pigdm", METHOD_NAMES["pigdm"]),
         ("pcfm", METHOD_NAMES["pcfm"]),
     ]
@@ -663,7 +642,7 @@ def plot_constrained_mnist(
         for r in range(grid):
             for c in range(grid):
                 axes[r, c].imshow(
-                    data[key][r * grid + c].squeeze(-1),
+                    _cached(data, key)[r * grid + c].squeeze(-1),
                     cmap="gray", vmin=0, vmax=1,
                 )
                 axes[r, c].axis("off")
@@ -690,13 +669,13 @@ def plot_inequality_star(
     if regenerate or not data_file.exists():
         print("[inequality_star] regenerating raw data ...")
         model, normalizer = _load_model("star")
-        x_unconstrained, _ = generate(
+        x_unconstrained, _, _ = generate_unconstrained(
             model, normalizer, num_samples=num_samples, dt=0.01
         )
-        x, _ = generate_inequality_constrained(
+        x, _, _ = ldf.generate(
             model,
             normalizer,
-            _right_half_constraint,
+            _right_half(),
             num_samples=num_samples,
             dt=0.01,
             penalty_weight=20.0,
@@ -776,10 +755,10 @@ def plot_violation_vs_steps(
         for key, rescale_factor in (("exp2", 1.0), ("penalty", 0.0)):
             records = []  # list of (num_steps, violation) per penalty
             for pw in penalties:
-                x, _, n = generate_constrained(
+                x, _, n = ldf.generate(
                     model,
                     normalizer,
-                    _unit_circle_constraint,
+                    _circle(),
                     num_samples=num_samples,
                     dt=0.01,
                     penalty_weight=pw,
@@ -790,7 +769,7 @@ def plot_violation_vs_steps(
                         rtol=tol, atol=tol, dtmin=1e-5,
                     ),
                 )
-                viol = float(jnp.mean(jnp.abs(_unit_circle_constraint(x))))
+                viol = float(jnp.mean(jnp.abs(_circle().fn(x))))
                 records.append((int(n) if n is not None else None, viol))
                 print(f"  {key}, pw={pw}, steps={n}, violation={viol:.4f}")
             results[key] = records
@@ -860,12 +839,12 @@ def plot_pcfm_projection_iters(
             x, xs = generate_pcfm(
                 model,
                 normalizer,
-                _unit_circle_constraint,
+                _circle().fn,
                 num_samples=num_samples,
                 num_steps=100,
                 num_projection_iters=n_iters,
             )
-            viol = float(jnp.mean(jnp.abs(_unit_circle_constraint(x))))
+            viol = float(jnp.mean(jnp.abs(_circle().fn(x))))
             print(f"  num_projection_iters={n_iters}, violation={viol:.3e}")
             data[n_iters] = {"x": np.asarray(x), "xs": np.asarray(xs)}
         with open(data_file, "wb") as f:

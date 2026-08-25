@@ -1,0 +1,66 @@
+# Table 1: generation time and constraint violation, per method and
+# denoising resolution.
+#
+# Run with:
+#   uv run -m cfm.cli sweep experiments/table1.toml
+#   uv run -m cfm.cli table --format markdown
+#
+# Cases already recorded under results/ are skipped, so an interrupted sweep
+# resumes. Pass --force to re-run them.
+
+num_samples = 20
+problems = ["star", "mnist"]
+methods = ["pigdm", "pcfm", "penalty", "ldf"]
+steps = [10, 100]
+
+# Per-scenario penalty weights for the dual flow and its ablation. These were
+# shell variables inside make_benchmark_table.sh, invisible to the figures.
+[[gains]]
+method = "ldf"
+problem = "star"
+steps = 10
+penalty_weight = 3.0
+
+[[gains]]
+method = "ldf"
+problem = "star"
+steps = 100
+penalty_weight = 5.0
+
+[[gains]]
+method = "ldf"
+problem = "mnist"
+steps = 10
+penalty_weight = 10.0
+
+[[gains]]
+method = "ldf"
+problem = "mnist"
+steps = 100
+penalty_weight = 20.0
+
+# The ablation uses the same penalty weights, so the comparison isolates the
+# dual dynamics rather than confounding them with a different gain.
+[[gains]]
+method = "penalty"
+problem = "star"
+steps = 10
+penalty_weight = 3.0
+
+[[gains]]
+method = "penalty"
+problem = "star"
+steps = 100
+penalty_weight = 5.0
+
+[[gains]]
+method = "penalty"
+problem = "mnist"
+steps = 10
+penalty_weight = 10.0
+
+[[gains]]
+method = "penalty"
+problem = "mnist"
+steps = 100
+penalty_weight = 20.0

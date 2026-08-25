@@ -1,12 +1,12 @@
 import jax
 import jax.numpy as jnp
-from architectures.flow import FlowMLP
-from datasets.bimodal_distribution import BimodalDataset
+from cfm.models.flow import FlowMLP
+from cfm.datasets.bimodal_distribution import BimodalDataset
 from flax import nnx
 import optax
 
-from training import loss_fn, train_step, train
-from architectures.normalizer import Normalizer
+from cfm.training import loss_fn, train_step, train
+from cfm.models.normalizer import Normalizer
 import pytest
 
 

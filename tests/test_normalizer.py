@@ -1,7 +1,7 @@
 import jax
 import jax.numpy as jnp
 
-from architectures.normalizer import Normalizer
+from cfm.models.normalizer import Normalizer
 
 
 def _make_batches(key, shape, true_mean, true_std, num_batches=300):

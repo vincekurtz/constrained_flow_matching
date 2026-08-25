@@ -4,8 +4,8 @@ This repository implements the constrained flow matching method described in the
 paper [Constrained Flow Matching via Lagragian Dual
 Flows](https://arxiv.org/abs/2607.04513) by Vince Kurtz and Alexander Davydov.
 
-This method takes a pre-trained [flow matching](https://arxiv.org/abs/2210.02747)
-model
+This method, **Lagrangian Dual Flows (LDF)**, takes a pre-trained [flow
+matching](https://arxiv.org/abs/2210.02747) model
 ```math
 \dot{x} = v_\theta(x, t)
 ```
@@ -46,33 +46,74 @@ Run lint checks:
 uv run ruff check
 ```
 
+## Layout
+
+```
+cfm/            the library
+  core/         solver scaffolding, constraints, Gauss-Newton projection
+  methods/      LDF and the baselines, plus the method registry
+  models/       flow architectures (MLP, UNet, normalizer)
+  datasets/     training datasets
+  cli.py        the command line entry point
+  sweep.py      declarative benchmark sweeps
+problems/       the example problems, and the problem registry
+experiments/    sweep configurations and the recorded performance baseline
+plots.py        paper figures
+```
+
+Everything is driven by two registries. `cfm/methods/__init__.py` lists the
+generation methods; `problems/__init__.py` lists the examples. Adding either
+one is a single entry, and the CLI, the benchmark, the sweep and the tests
+pick it up automatically.
+
+To see what is registered, and which methods can handle which problem:
+
+```bash
+uv run -m cfm.cli list
+```
+
+## Methods
+
+| Name | Description | Constraints |
+|------|-------------|-------------|
+| `ldf` | Lagrangian Dual Flows, the method of the paper | equality, inequality |
+| `penalty` | Penalty-only ablation: LDF with the multipliers frozen at zero | equality, inequality |
+| `pcfm` | [Physics-constrained flow matching](https://arxiv.org/abs/2506.04171) | equality |
+| `pigdm` | [Pseudoinverse guidance](https://arxiv.org/abs/2310.04432) | equality |
+| `cbf` | [SafeFlow](https://arxiv.org/abs/2504.08661) control barrier function filter | inequality |
+
+The `penalty` baseline is LDF with `rescale_factor = 0`, which freezes the
+Lagrange multipliers at their zero initialization and collapses the drift to
+$\dot{x} = v_\theta - \nabla g^\top g$: a pure quadratic penalty with no dual
+dynamics. It delegates to the same code path as `ldf` so the ablation cannot
+drift from the method it ablates, and it pins `rescale_factor` so a stray
+`--rescale-factor` cannot silently turn it back into full LDF.
+
 ## Examples
 
-### 2D toy datasets
-
-Five simple 2D examples live in `examples/`: `bimodal`, `spiral`, `star`,
-`unit_circle`. Each supports `--train` and `--generate`; `star` and
-`unit_circle` also support `--generate_constrained` (unit-norm constraint).
+### Training and generating
 
 ```bash
 # train
-uv run -m examples.bimodal --train
-uv run -m examples.spiral --train
-uv run -m examples.star --train
-uv run -m examples.unit_circle --train
+uv run -m cfm.cli train --problem star
 
 # generate (unconstrained)
-uv run -m examples.bimodal --generate
-uv run -m examples.spiral --generate
-uv run -m examples.star --generate
-uv run -m examples.unit_circle --generate
+uv run -m cfm.cli generate --problem star
 
-# generate (constrained to the unit circle)
-uv run -m examples.star --generate_constrained
-uv run -m examples.unit_circle --generate_constrained
+# generate with a constraint
+uv run -m cfm.cli generate --problem star --method ldf
+uv run -m cfm.cli generate --problem star --method penalty
+uv run -m cfm.cli generate --problem star --method pcfm
 ```
 
-Training takes about a minute on a laptop CPU.
+The 2-D problems (`bimodal`, `spiral`, `star`, `unit_circle`) train in about a
+minute on a laptop CPU. `star` and `unit_circle` impose a unit-norm
+constraint; `unit_circle` also offers a right-half-plane inequality with
+`--constraint right_half`.
+
+Per-problem gains are registered with the problem, so the commands above use
+the settings the paper uses. Any of them can be overridden on the command
+line (`--penalty-weight`, `--rescale-factor`, `--dt`, ...).
 
 ### Obstacle avoidance
 
@@ -92,42 +133,36 @@ and goal are fixed and shared by every path.
 
 ```bash
 # train (takes about 30 seconds)
-uv run -m examples.obstacles --train
+uv run -m cfm.cli train --problem obstacles
 
 # unconditional generation
-uv run -m examples.obstacles --generate
+uv run -m cfm.cli generate --problem obstacles
 
 # plan around a new, randomly generated scene
-uv run -m examples.obstacles --generate_constrained
-uv run -m examples.obstacles --generate_constrained --num-obstacles 3 --scene-seed 7
+uv run -m cfm.cli generate --problem obstacles --method ldf --dt 0.002
+uv run -m cfm.cli generate --problem obstacles --method ldf --dt 0.002 \
+    --num-obstacles 3 --scene-seed 7
 ```
 
 `--num-obstacles` and `--scene-seed` control the test scene. With the default
 closed-form slack, all 64 generated paths clear every obstacle across 1-3
-obstacle scenes, while 25-90% of unconstrained samples collide.
+obstacle scenes.
 
 `--slack ode` switches to carrying the slack variable as an extra ODE state
-(see `generate_inequality_constrained`); `--penalty-weight` and
-`--rescale-factor` override the per-mode default gains. The slack ODE needs
-much gentler gains to stay stable and enforces the constraint less tightly,
+instead of substituting its closed-form minimizer. The slack ODE needs much
+gentler gains to stay stable and enforces the constraint less tightly,
 especially as obstacles are added.
 
-`--method cbf` runs the [SafeFlow](https://arxiv.org/abs/2504.08661) control
-barrier function baseline (`cbf.py`) on the same scene, with `--phi0` and
-`--omega` setting the barrier gains. The safety-filter QP is solved with
-[qpax](https://github.com/kevin-tracy/qpax); barrier conditions that cannot all
-be met at once make it infeasible, which `--qp exact` (the default) raises on
-and `--qp elastic` relaxes, pricing violation at `--qp-penalty` per unit.
-
-The `omega / (1 - t)^2` schedule that pushes an infeasible sample back into the
-feasible set is unbounded at `t = 1`, so the fixed midpoint steps used
-elsewhere in this repository are not always enough to hold on to the flow.
-`--adaptive` swaps them for Tsit5 with PID error control, as in SafeFlow's
-Algorithm 1.
+`--method cbf` runs the SafeFlow control barrier function baseline on the same
+scene, with `--phi0` and `--omega` setting the barrier gains. The safety-filter
+QP is solved with [qpax](https://github.com/kevin-tracy/qpax); barrier
+conditions that cannot all be met at once make it infeasible, which
+`--qp exact` raises on and `--qp elastic` relaxes, pricing violation at
+`--qp-penalty` per unit. The exact solve is fragile enough that the sweep
+defaults to the relaxation.
 
 ```bash
-uv run -m examples.obstacles --generate_constrained --method cbf
-uv run -m examples.obstacles --generate_constrained --method cbf --adaptive
+uv run -m cfm.cli generate --problem obstacles --method cbf --qp elastic
 ```
 
 ### MNIST
@@ -138,41 +173,81 @@ sample and the model generates plausible completions.
 
 ```bash
 # train (requires a GPU; takes ~30 minutes)
-uv run -m examples.mnist --train
+uv run -m cfm.cli train --problem mnist
 
 # unconditional generation
-uv run -m examples.mnist --generate
+uv run -m cfm.cli generate --problem mnist
 
 # inpainting: fix top half, generate bottom half
-uv run -m examples.mnist --generate_constrained
+uv run -m cfm.cli generate --problem mnist --method ldf
 ```
 
-A pre-trained model is saved to `data/mnist_model.pkl` by default
-(`--save-path` overrides this for all three commands).
+Trained models are saved to `data/<problem>_model.pkl`; `--save-path`
+overrides this for every subcommand.
 
-### Further Details and Baselines
+## Benchmarks and experiments
 
-The main implementation of Lagragian Dual Flows is in `generate.py`.
-[Physics-constrained flow matching](https://arxiv.org/abs/2506.04171) and
-[pseudoinverse guidance](https://arxiv.org/abs/2310.04432) baselines are
-implemented in `pcfm.py` and `pi_gdm.py` respectively. `cbf.py` implements the
-[SafeFlow](https://arxiv.org/abs/2504.08661) control barrier function baseline,
-which handles inequality constraints only.
+Time a single method, one sample at a time:
 
-## Paper Reproduction
+```bash
+uv run -m cfm.cli benchmark --problem star --method ldf --num-samples 20
+```
 
-To reproduce all examples in the paper, run
+Reproduce Table 1 with a declarative sweep. Each case writes a JSON result to
+`results/`, and the table is rendered from those files rather than scraped
+from stdout:
+
+```bash
+uv run -m cfm.cli sweep experiments/table1.toml
+uv run -m cfm.cli table --format markdown   # or latex
+```
+
+Cases whose exact configuration already has a result are skipped, so an
+interrupted sweep resumes; pass `--force` to re-run them.
+
+`experiments/baseline.json` records per-method timing and violation from
+before the repository was reorganized. `--check-baseline` fails the sweep if
+any case regressed:
+
+```bash
+uv run -m cfm.cli sweep experiments/table1.toml --check-baseline
+```
+
+## Paper reproduction
+
 ```bash
 # train unconstrained flow matching models
-uv run -m examples.star --train
-uv run -m examples.mnist --train
+uv run -m cfm.cli train --problem star
+uv run -m cfm.cli train --problem mnist
 
-# Create and save figures to plots/figures
-uv run -m plots --regenerate
+# create and save figures to plots/figures
+uv run python plots.py --plot all --regenerate
+
+# Table 1
+uv run -m cfm.cli sweep experiments/table1.toml
+uv run -m cfm.cli table
 ```
 
-To reproduce Table 1 benchmarks, run
-```bash
-uv run ./make_benchmark_table.sh
-```
+## Notes for contributors
 
+**Adding a method.** Implement
+`generate(model, normalizer, constraint, **cfg) -> Samples` in a module under
+`cfm/methods/`, then add a `Method` entry to `cfm/methods/__init__.py`. The
+CLI, the sweep and the parameterized contract tests in
+`tests/test_methods.py` pick it up with no further wiring.
+
+**Adding a problem.** Add a `Problem` entry in a module under `problems/` and
+list it in `problems/__init__.py`.
+
+**Golden tests.** `tests/goldens/*.npy` pin the numerical output of every
+method on a fixed tiny model and seed. They exist so that refactoring can be
+verified rather than reviewed, and a failure means an algorithm changed. If a
+change is intended, regenerate with `uv run python -m tests.make_goldens` and
+review the array diff like any other change.
+
+**The LDF integration endpoint.** The multiplier flow carries a
+`1/(1-t)^p` factor that is singular at `t = 1`, so the trajectory is recorded
+only up to the last save time strictly before 1, and the returned sample is
+the state there. This is deliberate and load-bearing: on the trained star
+model, taking the final step instead moves mean violation from `2.6e-03` to
+`2.8e-02`. See `SAVE_ENDPOINT` in `cfm/methods/ldf.py`.

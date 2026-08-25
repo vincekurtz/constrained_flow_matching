@@ -1,11 +1,11 @@
 import pytest
 import torch
-from datasets.bimodal_distribution import BimodalDataset
-from datasets.mnist import MNISTDataset
-from datasets.unit_circle import UnitCircleDataset
-from datasets.star import StarDataset
-from datasets.spiral import SpiralDataset
-from datasets.obstacle_paths import ObstaclePathDataset
+from cfm.datasets.bimodal_distribution import BimodalDataset
+from cfm.datasets.mnist import MNISTDataset
+from cfm.datasets.unit_circle import UnitCircleDataset
+from cfm.datasets.star import StarDataset
+from cfm.datasets.spiral import SpiralDataset
+from cfm.datasets.obstacle_paths import ObstaclePathDataset
 
 
 # ---------------------------------------------------------------------------
