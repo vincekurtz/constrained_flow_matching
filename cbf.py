@@ -66,7 +66,7 @@ def generate_cbf(
     omega: float = 4.0,
     qp: str = "exact",
     qp_penalty: float = 1e4,
-    qp_tol: float = 1e-5,
+    qp_tol: float = 1e-3,
     qp_max_iter: int = 30,
     num_terminal_iters: int = 20,
     eps_reg: float = 1e-6,
