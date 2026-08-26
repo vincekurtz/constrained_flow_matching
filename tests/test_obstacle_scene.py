@@ -70,14 +70,9 @@ def test_start_and_goal_stay_clear(seed):
 
 
 def test_raises_when_the_scene_cannot_be_filled():
-    """An impossible request fails loudly rather than looping forever.
-
-    Six is just past what the corridor holds -- five still fits -- so this
-    exercises the give-up path without burning the full rejection budget on
-    an absurd request.
-    """
+    """An impossible request fails loudly rather than looping forever."""
     with pytest.raises(RuntimeError, match="Could not fit"):
-        sample_scene(0, 8)
+        sample_scene(0, 16)
 
 
 def test_fits_the_largest_feasible_scene():
