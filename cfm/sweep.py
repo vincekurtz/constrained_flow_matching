@@ -9,6 +9,14 @@ Here one runner produces one result file per case, and both the table and the
 figures read those files. A case is skipped when a result for its exact
 configuration already exists, so an interrupted sweep resumes rather than
 starting over.
+
+A configuration is a list of ``[[block]]`` sections, each its own
+problems x methods x steps grid -- one table needs more than one grid, since
+the obstacle rows run a different scene and a much finer step size than the
+2-D and MNIST rows. A row within a grid is named by a ``[[variants]]`` entry:
+a registered method with some gains pinned, which is how the same method can
+appear twice (LDF with and without the final projection) without being
+registered twice.
 """
 
 import hashlib
@@ -33,14 +41,28 @@ RESULTS_DIR = Path("results")
 
 @dataclass(frozen=True)
 class Case:
-    """One (problem, method, steps) benchmark run."""
+    """One (problem, row, steps) benchmark run.
+
+    A *row* of the table is a method plus the gains that pin it down, which
+    is not the same thing as a method: LDF with the final projection and LDF
+    without it are one method at two settings, and both are rows. ``variant``
+    names the row, and is what keeps the two apart in the results directory.
+    """
 
     problem: str
     method: str
     steps: int
     num_samples: int
+    variant: str = ""
+    row_label: str = ""
+    problem_label: str = ""
     gains: Dict[str, Any] = field(default_factory=dict)
     problem_options: Dict[str, Any] = field(default_factory=dict)
+
+    @property
+    def name(self) -> str:
+        """The row's name: its variant, or the method when it has none."""
+        return self.variant or self.method
 
     @property
     def key(self) -> str:
@@ -48,23 +70,93 @@ class Case:
         payload = json.dumps({
             "problem": self.problem,
             "method": self.method,
+            "variant": self.name,
             "steps": self.steps,
             "num_samples": self.num_samples,
             "gains": self.gains,
             "problem_options": self.problem_options,
         }, sort_keys=True)
         digest = hashlib.sha256(payload.encode()).hexdigest()[:10]
-        return f"{self.problem}_{self.method}_{self.steps}_{digest}"
+        return f"{self.problem}_{self.name}_{self.steps}_{digest}"
 
     @property
     def label(self) -> str:
-        return f"{self.problem}/{self.method}/{self.steps} steps"
+        # The scene is in the progress line because two obstacle blocks run
+        # the same problem and would otherwise scroll past identically.
+        scene = "".join(
+            f" {k}={v}" for k, v in sorted(self.problem_options.items())
+        )
+        return f"{self.problem}{scene}/{self.name}/{self.steps} steps"
+
+
+@dataclass(frozen=True)
+class Variant:
+    """A named table row: a registered method with some gains pinned.
+
+    Declaring the two LDF rows as variants gives each its own label and its
+    own result file without inventing a second entry in the method registry
+    for what is one algorithm with one gain changed.
+    """
+
+    name: str
+    method: str
+    label: str
+    gains: Dict[str, Any] = field(default_factory=dict)
 
 
 def load_config(path) -> Dict[str, Any]:
     """Read a sweep configuration from TOML."""
     with open(path, "rb") as f:
         return tomllib.load(f)
+
+
+def _variants(config: Dict[str, Any]) -> Dict[str, Variant]:
+    """The variants a config declares, keyed by the name its rows use."""
+    out = {}
+    for entry in config.get("variants", []):
+        method_name = entry.get("method", entry["name"])
+        method = methods.get(method_name)  # fail loudly on a typo
+        out[entry["name"]] = Variant(
+            name=entry["name"],
+            method=method_name,
+            label=entry.get("label", method.label),
+            gains=dict(entry.get("gains", {})),
+        )
+    return out
+
+
+def _blocks(config: Dict[str, Any]) -> List[Dict[str, Any]]:
+    """The config's blocks, each its own problems x methods x steps grid.
+
+    A config with no ``[[block]]`` section is itself the single block, so the
+    flat form still works.
+    """
+    shared = {
+        k: v for k, v in config.items() if k not in ("block", "variants")
+    }
+    blocks = config.get("block")
+    if not blocks:
+        return [shared]
+    return [
+        # Gain overrides accumulate rather than replace: a block adds its own
+        # to whatever the config declared for every block, and wins on a tie
+        # by coming later in the list.
+        {**shared, **b, "gains": shared.get("gains", []) + b.get("gains", [])}
+        for b in blocks
+    ]
+
+
+def _selects(value, *names) -> bool:
+    """Does a gain entry's selector cover this row?
+
+    An absent key selects everything, and a list selects any of its entries,
+    so one override can name several rows at once.
+    """
+    if value is None:
+        return True
+    if isinstance(value, list):
+        return any(v in names for v in value)
+    return value in names
 
 
 def build_cases(config: Dict[str, Any]) -> List[Case]:
@@ -74,40 +166,63 @@ def build_cases(config: Dict[str, Any]) -> List[Case]:
     rather than erroring, so one config can span problems with different
     constraint kinds.
     """
-    num_samples = config.get("num_samples", 20)
-    overrides = config.get("gains", [])
+    variants = _variants(config)
     cases = []
 
-    for problem_name in config["problems"]:
-        problem = problems.get(problem_name)
-        problem_options = config.get("problem_options", {}).get(
-            problem_name, {}
-        )
-        constraint = problem.make_constraint(**problem_options)
+    for block in _blocks(config):
+        num_samples = block.get("num_samples", 20)
+        overrides = block.get("gains", [])
+        problem_label = block.get("problem_label")
+        if problem_label and len(block["problems"]) > 1:
+            raise ValueError(
+                "problem_label renames one problem's rows, so a block that "
+                f"sets it may list only one problem; got {block['problems']}"
+            )
 
-        for method_name in config["methods"]:
-            method = methods.get(method_name)
-            if not method.supports_constraint(constraint):
-                continue
+        for problem_name in block["problems"]:
+            problem = problems.get(problem_name)
+            problem_options = block.get("problem_options", {}).get(
+                problem_name, {}
+            )
+            constraint = problem.make_constraint(**problem_options)
 
-            for steps in config["steps"]:
-                gains = problem.gains_for(method_name)
-                for entry in overrides:
-                    if (entry.get("method") in (None, method_name)
-                            and entry.get("problem") in (None, problem_name)
-                            and entry.get("steps") in (None, steps)):
-                        gains.update({
-                            k: v for k, v in entry.items()
-                            if k not in ("method", "problem", "steps")
-                        })
-                cases.append(Case(
-                    problem=problem_name,
-                    method=method_name,
-                    steps=steps,
-                    num_samples=num_samples,
-                    gains=gains,
-                    problem_options=problem_options,
-                ))
+            for row_name in block["methods"]:
+                variant = variants.get(row_name)
+                method_name = variant.method if variant else row_name
+                method = methods.get(method_name)
+                if not method.supports_constraint(constraint):
+                    continue
+
+                for steps in block["steps"]:
+                    gains = problem.gains_for(method_name)
+                    for entry in overrides:
+                        if (_selects(entry.get("method"),
+                                     row_name, method_name)
+                                and _selects(entry.get("problem"),
+                                             problem_name)
+                                and _selects(entry.get("steps"), steps)):
+                            gains.update({
+                                k: v for k, v in entry.items()
+                                if k not in ("method", "problem", "steps")
+                            })
+                    # A variant's own gains are what make it that row, so
+                    # they land last: an override aimed at the method as a
+                    # whole tunes both LDF rows without collapsing them into
+                    # one.
+                    if variant:
+                        gains.update(variant.gains)
+
+                    cases.append(Case(
+                        problem=problem_name,
+                        method=method_name,
+                        variant=row_name,
+                        row_label=variant.label if variant else method.label,
+                        problem_label=problem_label or problem.label,
+                        steps=steps,
+                        num_samples=num_samples,
+                        gains=gains,
+                        problem_options=problem_options,
+                    ))
     return cases
 
 
@@ -159,8 +274,11 @@ def run_case(case: Case, results_dir: Path = RESULTS_DIR) -> Dict[str, Any]:
     v = jnp.array(violations)
     record = {
         "problem": case.problem,
+        "problem_label": case.problem_label or problem.label,
+        "problem_options": case.problem_options,
         "method": case.method,
-        "method_label": method.label,
+        "variant": case.name,
+        "method_label": case.row_label or method.label,
         "steps": case.steps,
         "num_samples": case.num_samples,
         "config": {k: str(val) for k, val in cfg.items()},
@@ -219,15 +337,19 @@ def load_results(results_dir: Path = RESULTS_DIR) -> List[Dict[str, Any]]:
 def render_table(records, fmt: str = "markdown") -> str:
     """Render benchmark records as a table.
 
-    Rows are ordered by problem, then step count, then the order methods are
-    registered, so the table reads the same way every time it is regenerated.
+    Rows are ordered by problem, then by the problem's label so the two
+    obstacle scenes stay in separate stretches, then step count, then the
+    order methods are registered, then the row label so a method's variants
+    keep a fixed order. The table therefore reads the same way every time it
+    is regenerated, from whatever result files happen to be on disk.
     """
     order = list(methods.METHODS)
     rows = sorted(
         records,
         key=lambda r: (
-            r["problem"], r["steps"],
+            r["problem"], r.get("problem_label") or "", r["steps"],
             order.index(r["method"]) if r["method"] in order else 99,
+            r.get("method_label") or "",
         ),
     )
 
@@ -236,7 +358,7 @@ def render_table(records, fmt: str = "markdown") -> str:
     for r in rows:
         note = f" ({r['num_nan']} NaN)" if r.get("num_nan") else ""
         body.append([
-            problems.get(r["problem"]).label,
+            r.get("problem_label") or problems.get(r["problem"]).label,
             str(r["steps"]),
             r["method_label"],
             f"{r['mean_time_ms']:.2f}",
@@ -296,6 +418,12 @@ def compare_to_baseline(
     for r in records:
         if r["steps"] != baseline_steps:
             continue
+        # The baseline predates the final Gauss-Newton projection, so only
+        # the rows that skip it are comparable. A projected row lands orders
+        # of magnitude tighter and would otherwise read as an improvement in
+        # something the baseline never measured.
+        if float(r.get("config", {}).get("num_projection_iters", 0)) > 0:
+            continue
         # The baseline predates the ours -> ldf rename.
         legacy = {"ldf": "ours"}.get(r["method"], r["method"])
         key = f"{r['problem']}/{legacy}"
@@ -329,7 +457,7 @@ def compare_to_baseline(
             print(
                 f"  note: {key} is {ratio:.2f}x slower but {tighter:.0f}x "
                 f"tighter ({want['mean_violation']:.2e} -> "
-                f"{r['mean_violation']:.2e}); the problem's registered gains "
-                f"include a projection the old benchmark skipped"
+                f"{r['mean_violation']:.2e}); counted as a trade, not a "
+                f"regression"
             )
     return regressions

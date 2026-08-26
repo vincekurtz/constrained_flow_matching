@@ -156,8 +156,10 @@ scene, with `--phi0` and `--omega` setting the barrier gains. The safety-filter
 QP is solved with [qpax](https://github.com/kevin-tracy/qpax); barrier
 conditions that cannot all be met at once make it infeasible, which
 `--qp exact` raises on and `--qp elastic` relaxes, pricing violation at
-`--qp-penalty` per unit. The exact solve is fragile enough that the sweep
-defaults to the relaxation.
+`--qp-penalty` per unit. The exact solve is fragile enough that Table 1's
+obstacle rows ask for the relaxation: at their `dt = 0.002` the barrier
+conditions are mutually infeasible on essentially every sample and the exact
+solve fails outright.
 
 ```bash
 uv run -m cfm.cli generate --problem obstacles --method cbf --qp elastic
@@ -202,6 +204,32 @@ uv run -m cfm.cli table --format markdown   # or latex
 
 Cases whose exact configuration already has a result are skipped, so an
 interrupted sweep resumes; pass `--force` to re-run them.
+
+A config is a list of `[[block]]` sections, each its own
+problems x methods x steps grid. One table needs more than one grid: the
+obstacle rows run their own scenes, at a much finer step size than the 2-D
+and MNIST rows, and a block carries its own `problem_options`,
+`num_samples` and `problem_label` so the same problem can appear twice under
+two scenes. A config with no `[[block]]` is itself the single block.
+
+A row of the table is named by a `[[variants]]` entry: a registered method
+with the gains that define the row pinned.
+
+```toml
+[[variants]]
+name = "ldf_projected"
+method = "ldf"
+label = "LDF + projection"
+gains = { num_projection_iters = 2 }
+```
+
+That is how one method appears on two rows -- LDF as the flow alone, and LDF
+followed by the Gauss-Newton projection -- without being registered twice.
+Each row gets its own label and its own result file. A `[[gains]]` override
+may name a variant, or name the method and reach every one of its rows;
+`method = ["ldf", "penalty"]` reaches several at once. A variant's own gains
+are applied last, so tuning `ldf` tunes both LDF rows rather than collapsing
+them into one.
 
 `experiments/baseline.json` records per-method timing and violation from
 before the repository was reorganized. `--check-baseline` fails the sweep if

@@ -9,58 +9,106 @@
 # resumes. Pass --force to re-run them.
 
 num_samples = 20
+
+# Rows. A variant is a registered method with the gains that define its row
+# pinned, so the same method can appear twice: LDF as the flow alone, and LDF
+# followed by the Gauss-Newton projection that polishes off whatever
+# violation the finite-time flow leaves behind. Pinning the iteration count
+# here rather than inheriting it from the problem registry keeps the two rows
+# meaning the same thing on every example.
+[[variants]]
+name = "ldf"
+method = "ldf"
+label = "LDF (no projection)"
+gains = { num_projection_iters = 0 }
+
+[[variants]]
+name = "ldf_projected"
+method = "ldf"
+label = "LDF + projection"
+gains = { num_projection_iters = 2 }
+
+# The ablation is pinned unprojected too, so it is a comparison against the
+# `ldf` row that isolates the dual dynamics rather than the final polish.
+[[variants]]
+name = "penalty"
+method = "penalty"
+label = "Penalty only"
+gains = { num_projection_iters = 0 }
+
+# ---------------------------------------------------------------------------
+# The 2-D and MNIST rows, at two denoising resolutions.
+# ---------------------------------------------------------------------------
+
+[[block]]
 problems = ["star", "mnist"]
-methods = ["pigdm", "pcfm", "penalty", "ldf"]
+methods = ["pigdm", "pcfm", "penalty", "ldf", "ldf_projected"]
 steps = [10, 100]
 
 # Per-scenario penalty weights for the dual flow and its ablation. These were
 # shell variables inside make_benchmark_table.sh, invisible to the figures.
-[[gains]]
-method = "ldf"
+# They are aimed at the method rather than the row, so both LDF rows and the
+# ablation share a weight and the comparison isolates the dual dynamics and
+# the projection instead of confounding them with a different gain.
+[[block.gains]]
+method = ["ldf", "penalty"]
 problem = "star"
 steps = 10
 penalty_weight = 3.0
 
-[[gains]]
-method = "ldf"
+[[block.gains]]
+method = ["ldf", "penalty"]
 problem = "star"
 steps = 100
 penalty_weight = 5.0
 
-[[gains]]
-method = "ldf"
+[[block.gains]]
+method = ["ldf", "penalty"]
 problem = "mnist"
 steps = 10
 penalty_weight = 10.0
 
-[[gains]]
-method = "ldf"
+[[block.gains]]
+method = ["ldf", "penalty"]
 problem = "mnist"
 steps = 100
 penalty_weight = 20.0
 
-# The ablation uses the same penalty weights, so the comparison isolates the
-# dual dynamics rather than confounding them with a different gain.
-[[gains]]
-method = "penalty"
-problem = "star"
-steps = 10
-penalty_weight = 3.0
+# ---------------------------------------------------------------------------
+# Obstacle avoidance, at dt = 0.002. Two scenes, sparse and crowded, so the
+# table shows what happens as the constraints pile up. The CBF filter only
+# handles inequalities and so appears here and nowhere else; PCFM and PiGDM
+# only handle equalities and are dropped from these blocks automatically.
+# ---------------------------------------------------------------------------
 
-[[gains]]
-method = "penalty"
-problem = "star"
-steps = 100
-penalty_weight = 5.0
+[[block]]
+problems = ["obstacles"]
+problem_label = "Obstacle avoidance (2 obstacles)"
+methods = ["cbf", "ldf", "ldf_projected"]
+steps = [500]
 
-[[gains]]
-method = "penalty"
-problem = "mnist"
-steps = 10
-penalty_weight = 10.0
+[block.problem_options.obstacles]
+num_obstacles = 2
+scene_seed = 0
 
-[[gains]]
-method = "penalty"
-problem = "mnist"
-steps = 100
-penalty_weight = 20.0
+# The obstacles problem pins the exact QP, which at dt = 0.002 hits mutually
+# infeasible barrier conditions and fails outright, leaving nothing to time.
+# The elastic relaxation is what the comparison figure in plots.py runs at
+# this step size for the same reason.
+[[block.gains]]
+method = "cbf"
+qp = "elastic"
+
+[[block]]
+problems = ["obstacles"]
+problem_label = "Obstacle avoidance (6 obstacles)"
+methods = ["cbf", "ldf", "ldf_projected"]
+steps = [500]
+
+[block.problem_options.obstacles]
+num_obstacles = 6
+scene_seed = 0
+
+[[block.gains]]
+method = "cbf"
+qp = "elastic"
