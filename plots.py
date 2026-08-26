@@ -859,6 +859,96 @@ def plot_pcfm_projection_iters(
 
 
 # ============================================================================
+# Obstacle avoidance: unconstrained vs constrained paths
+# ============================================================================
+
+
+def plot_obstacle_avoidance(
+    regenerate: bool = False,
+    num_samples: int = 40,
+    scene_seed: int = 0,
+    num_obstacles: int = 7,
+):
+    """Robot paths before and after imposing obstacle avoidance.
+
+    The flow model is trained unconditionally on wiggly start-to-goal paths,
+    so the unconstrained samples (left) know nothing about the scene. The
+    same model, constrained at inference time (right), routes around the
+    obstacles it is shown for the first time.
+
+    Scene 2 is used rather than the CLI's default scene 0: at these gains a
+    handful of paths in scene 0 diverge and shoot off the figure, which is a
+    solver artifact rather than anything the figure is about.
+    """
+    _ensure_dirs()
+    data_file = DATA_DIR / "obstacle_avoidance.pkl"
+
+    if regenerate or not data_file.exists():
+        print("[obstacle_avoidance] regenerating raw data ...")
+        from problems import obstacles as obstacle_problem
+
+        model, normalizer = _load_model("obstacles")
+        problem = problems.get("obstacles")
+        # make_constraint samples the scene and remembers it, so the figure
+        # draws exactly the obstacles the samples were generated against.
+        constraint = problem.make_constraint(
+            scene_seed=scene_seed, num_obstacles=num_obstacles
+        )
+        centers, radii = obstacle_problem._LAST_SCENE["obstacles"]
+
+        x_unc, _, _ = generate_unconstrained(
+            model, normalizer, num_samples=num_samples, dt=0.01
+        )
+        x, _, _ = ldf.generate(
+            model,
+            normalizer,
+            constraint,
+            num_samples=num_samples,
+            dt=0.002,
+            **problem.gains_for("ldf"),
+        )
+        obstacle_problem.report_violations(x, centers, radii)
+        data = {
+            "unconstrained": np.asarray(x_unc),
+            "constrained": np.asarray(x),
+            "centers": np.asarray(centers),
+            "radii": np.asarray(radii),
+        }
+        with open(data_file, "wb") as f:
+            pickle.dump(data, f)
+
+    with open(data_file, "rb") as f:
+        data = pickle.load(f)
+
+    from cfm.plotting import plot_paths
+    from problems.obstacle_scene import GOAL, PLOT_SUBSAMPLE, START, path
+
+    obstacles = (data["centers"], data["radii"])
+    panels = [
+        ("unconstrained", "Unconstrained", "gray", None),
+        ("constrained", "Constrained", METHOD_COLORS["ldf"], obstacles),
+    ]
+
+    fig, axes = plt.subplots(1, 2, figsize=(11, 5.5), sharex=True, sharey=True)
+    for ax, (key, title, color, scene) in zip(axes, panels):
+        plot_paths(
+            np.asarray(path(jnp.asarray(_cached(data, key)), PLOT_SUBSAMPLE)),
+            obstacles=scene,
+            start=START,
+            goal=GOAL,
+            ax=ax,
+            title=title,
+            color=color,
+            alpha=0.6,
+        )
+    fig.tight_layout()
+    out = FIG_DIR / "obstacle_avoidance.png"
+    fig.savefig(out, dpi=150)
+    print(f"[obstacle_avoidance] wrote {out}")
+    plt.close(fig)
+
+
+# ============================================================================
 # CLI
 # ============================================================================
 
@@ -871,6 +961,7 @@ PLOTS = {
     "inequality_star": plot_inequality_star,
     "violation_vs_steps": plot_violation_vs_steps,
     "pcfm_projection_iters": plot_pcfm_projection_iters,
+    "obstacle_avoidance": plot_obstacle_avoidance,
 }
 
 
