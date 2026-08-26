@@ -8,17 +8,15 @@ the raw data, and then draws.
 
 Usage:
     python plots.py --plot all
-    python plots.py --plot generation_times --regenerate
+    python plots.py --plot constrained_star --regenerate
 """
 
 import argparse
 import json
 import pickle
-import time
 from pathlib import Path
 import diffrax
 
-import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
@@ -26,10 +24,8 @@ import numpy as np
 import problems
 from cfm import methods
 from cfm.core import checkpoint
-from cfm.methods import ldf
+from cfm.methods import ldf, pcfm, pigdm
 from cfm.methods.ldf import generate_unconstrained
-from cfm.methods.pcfm import generate_pcfm
-from cfm.methods.pigdm import generate_pigdm
 
 
 DATA_DIR = Path("plots/data")
@@ -41,14 +37,6 @@ METHODS = ("ldf", "pigdm", "pcfm")
 METHOD_COLORS = {"ldf": "C0", "pigdm": "C1", "pcfm": "C2", "penalty": "C3"}
 METHOD_NAMES = {name: methods.get(name).label for name in METHODS}
 
-# Cached raw data written before the ours -> ldf rename still uses the old
-# key. Read-side alias only; drop it once the figures have been regenerated.
-LEGACY_METHOD_KEYS = {"ours": "ldf"}
-
-
-def _canonical_method(key):
-    return LEGACY_METHOD_KEYS.get(key, key)
-
 
 def _cached(container, method):
     """Read a method's entry from cached raw data.
@@ -59,9 +47,6 @@ def _cached(container, method):
     """
     if method in container:
         return container[method]
-    for old, new in LEGACY_METHOD_KEYS.items():
-        if new == method and old in container:
-            return container[old]
     raise KeyError(
         f"no cached data for method {method!r} (have: "
         f"{', '.join(sorted(container))}); re-run with --regenerate"
@@ -115,161 +100,8 @@ def _right_half():
     return RIGHT_HALF
 
 
-def _get_constraint(example):
-    """(constraint, scalar violation fn) for one problem."""
-    c = _constraint(example)
-    return c, lambda x: float(c.violation(x))
-
-
-# ---- per-sample timing ---------------------------------------------------
-
-
-def _make_single_sample_fn(method, example, *, dt, num_steps, **overrides):
-    """JIT a ``rng -> single sample`` function for one method and problem.
-
-    This was a near-copy of ``benchmark.py:build_generator``; both now go
-    through the method registry, so the figures and the table cannot drift
-    apart in how they invoke a method.
-    """
-    model, normalizer = _load_model(example)
-    problem = problems.get(example)
-    constraint = _constraint(example)
-    spec = methods.get(_canonical_method(method))
-
-    cfg = problem.gains_for(spec.name)
-    cfg.update({k: v for k, v in overrides.items() if v is not None})
-    if spec.name in methods.USES_DT:
-        cfg["dt"] = dt
-    else:
-        cfg["num_steps"] = num_steps
-
-    def _gen(rng):
-        return spec.run(
-            model, normalizer, constraint, num_samples=1, rng=rng, **cfg
-        ).x[0]
-
-    return jax.jit(_gen)
-
-
-def _time_method(method, example, num_samples, *, dt, num_steps, seed=0):
-    """JIT a single-sample generator and time ``num_samples`` invocations.
-
-    Returns ``(times, violations)``: per-sample wall-clock times (s) and the
-    corresponding scalar constraint violations of each generated sample.
-    """
-    gen = _make_single_sample_fn(method, example, dt=dt, num_steps=num_steps)
-    _, violation_fn = _get_constraint(example)
-    rngs = jax.random.split(jax.random.key(seed), num_samples)
-    # Warm-up (compile + first call).
-    jax.block_until_ready(gen(rngs[0]))
-    times, violations = [], []
-    for rng in rngs:
-        t0 = time.perf_counter()
-        sample = gen(rng)
-        jax.block_until_ready(sample)
-        times.append(time.perf_counter() - t0)
-        violations.append(violation_fn(sample))
-    return times, violations
-
-
 # ============================================================================
-# Plot 1: generation times
-# ============================================================================
-
-
-def plot_generation_times(regenerate: bool = False, num_samples: int = 20):
-    """Box plots: per-sample generation times."""
-    _ensure_dirs()
-    data_file = DATA_DIR / "generation_times.json"
-
-    if regenerate or not data_file.exists():
-        print("[generation_times] regenerating raw data ...")
-        configs = (("fine", 0.01, 100), ("coarse", 0.1, 10))
-        results = {}
-        for example in ("star", "mnist"):
-            results[example] = {}
-            for method in METHODS:
-                results[example][method] = {}
-                for label, dt, n_steps in configs:
-                    print(f"  {example} / {method} / {label}")
-                    times, violations = _time_method(
-                        method,
-                        example,
-                        num_samples,
-                        dt=dt,
-                        num_steps=n_steps,
-                    )
-                    results[example][method][label] = {
-                        "times": times,
-                        "violations": violations,
-                    }
-        with open(data_file, "w") as f:
-            json.dump(results, f, indent=2)
-
-    with open(data_file) as f:
-        results = json.load(f)
-
-    print("[generation_times] summary per sample:")
-    header = f"    {'method':>12} / {'config':<6}: {'time (sec)':>10} | "
-    header += f"{'viol mean':>10} {'viol min':>10} {'viol max':>10}"
-    for example in ("star", "mnist"):
-        print(f"  {example}:")
-        print(header)
-        for method in METHODS:
-            for label in ("fine", "coarse"):
-                entry = _cached(results[example], method)[label]
-                times = entry["times"]
-                violations = entry["violations"]
-                mean_sec = sum(times) / len(times)
-                v_mean = np.nanmean(violations)
-                v_min = min(violations)
-                v_max = max(violations)
-                print(
-                    f"    {method:>12} / {label:<6}: {mean_sec:10.3f} | "
-                    f"{v_mean:10.3e} {v_min:10.3e} {v_max:10.3e}"
-                )
-
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4))
-    for ax, example in zip(axes, ("star", "mnist")):
-        data, labels, positions, colors = [], [], [], []
-        x = 0.0
-        for method in METHODS:
-            for label in ("fine", "coarse"):
-                data.append(
-                    [t * 1000
-                     for t in _cached(results[example], method)[label]["times"]]
-                )
-                labels.append(f"{method}\n{label}")
-                positions.append(x)
-                colors.append(METHOD_COLORS[method])
-                x += 1.0
-            x += 0.5  # gap between methods
-        bp = ax.boxplot(
-            data,
-            positions=positions,
-            widths=0.7,
-            patch_artist=True,
-            medianprops={"color": "k"},
-        )
-        for patch, c in zip(bp["boxes"], colors):
-            patch.set_facecolor(c)
-            patch.set_alpha(0.6)
-        ax.set_xticks(positions)
-        ax.set_xticklabels(labels, fontsize=8)
-        ax.set_ylabel("Time per sample (ms)")
-        ax.set_yscale("log")
-        ax.set_title(example)
-        ax.grid(axis="y", linestyle=":", alpha=0.5)
-    fig.suptitle(f"Per-sample generation time (N={num_samples} samples each)")
-    fig.tight_layout()
-    out = FIG_DIR / "generation_times.png"
-    fig.savefig(out, dpi=150)
-    print(f"[generation_times] wrote {out}")
-    plt.close(fig)
-
-
-# ============================================================================
-# Plot 2: constraint violation vs penalty weight
+# Constraint violation vs penalty weight
 # ============================================================================
 
 
@@ -290,26 +122,31 @@ def plot_violation_vs_penalty(
         for exp_val, key in ((1.0, "exp1"), (2.0, "exp2")):
             violations = []
             for pw in penalties:
-                x, _, _ = ldf.generate(
-                    model,
-                    normalizer,
-                    _circle(),
-                    num_samples=num_samples,
-                    dt=dt,
-                    penalty_weight=pw,
-                    rescale_factor=1.0,
-                    rescale_exponent=exp_val,
-                    solver=diffrax.Dopri5(),
-                    stepsize_controller=diffrax.PIDController(
-                        rtol=1e-5, atol=1e-5, dtmin=1e-5,
-                    ),
-                )
-                violations.append(
-                    float(jnp.mean(jnp.abs(_circle().fn(x))))
-                )
-                print(
-                    f"  exp={exp_val}, penalty={pw}, violation={violations[-1]}"
-                )
+                try:
+                    x, _, _ = ldf.generate(
+                        model,
+                        normalizer,
+                        _circle(),
+                        num_samples=num_samples,
+                        dt=dt,
+                        penalty_weight=pw,
+                        rescale_factor=1.0,
+                        rescale_exponent=exp_val,
+                        solver=diffrax.Dopri5(),
+                        stepsize_controller=diffrax.PIDController(
+                            rtol=1e-5,
+                            atol=1e-5,
+                            dtmin=1e-5,
+                        ),
+                    )
+                    violation = float(jnp.mean(jnp.abs(_circle().fn(x))))
+                    print(
+                        f"  exp={exp_val}, penalty={pw}, violation={violation}"
+                    )
+                except Exception:
+                    print(f"  exp={exp_val}, penalty={pw}, Failed!")
+                    violation = float("nan")
+                violations.append(violation)
             results[key] = violations
         with open(data_file, "w") as f:
             json.dump(results, f, indent=2)
@@ -344,7 +181,7 @@ def plot_violation_vs_penalty(
 
 
 # ============================================================================
-# Plot 2b: MNIST constraint violation vs penalty weight (solver configs)
+# MNIST constraint violation vs penalty weight (solver configs)
 # ============================================================================
 
 
@@ -406,9 +243,7 @@ def plot_mnist_violation_vs_penalty(
                     stepsize_controller=controller,
                 )
                 violations.append(_violation(x))
-                print(
-                    f"  {key}, penalty={pw}, violation={violations[-1]}"
-                )
+                print(f"  {key}, penalty={pw}, violation={violations[-1]}")
             results[key] = violations
         with open(data_file, "w") as f:
             json.dump(results, f, indent=2)
@@ -439,7 +274,7 @@ def plot_mnist_violation_vs_penalty(
 
 
 # ============================================================================
-# Plot 3: constrained star + representative trajectories
+# Constrained star + representative trajectories
 # ============================================================================
 
 
@@ -460,7 +295,8 @@ def plot_constrained_star(
             model, normalizer, num_samples=num_samples, dt=0.01
         )
         data["unconstrained"] = {
-            "x": np.asarray(x_unc), "xs": np.asarray(xs_unc)
+            "x": np.asarray(x_unc),
+            "xs": np.asarray(xs_unc),
         }
         x, xs, _ = ldf.generate(
             model,
@@ -472,20 +308,20 @@ def plot_constrained_star(
             rescale_factor=1.0,
         )
         data["ldf"] = {"x": np.asarray(x), "xs": np.asarray(xs)}
-        x, xs = generate_pigdm(
+        x, xs, _ = pigdm.generate(
             model,
             normalizer,
-            _circle().fn,
+            _circle(),
             num_samples=num_samples,
             dt=0.01,
             guidance_scale=1.0,
             eps_reg=1e-4,
         )
         data["pigdm"] = {"x": np.asarray(x), "xs": np.asarray(xs)}
-        x, xs = generate_pcfm(
+        x, xs, _ = pcfm.generate(
             model,
             normalizer,
-            _circle().fn,
+            _circle(),
             num_samples=num_samples,
             num_steps=100,
         )
@@ -520,12 +356,19 @@ def plot_constrained_star(
         for i in range(n_show):
             ax.plot(xs[:, i, 0], xs[:, i, 1], lw=1.0, alpha=0.7, color=color)
         ax.scatter(
-            xs[0, :n_show, 0], xs[0, :n_show, 1],
-            s=15, color="k", alpha=0.5, label="start",
+            xs[0, :n_show, 0],
+            xs[0, :n_show, 1],
+            s=15,
+            color="k",
+            alpha=0.5,
+            label="start",
         )
         ax.scatter(
-            xs[-1, :n_show, 0], xs[-1, :n_show, 1],
-            s=15, color=color, label="end",
+            xs[-1, :n_show, 0],
+            xs[-1, :n_show, 1],
+            s=15,
+            color=color,
+            label="end",
         )
         ax.set_xlim(-2, 2)
         ax.set_ylim(-2, 2)
@@ -543,7 +386,7 @@ def plot_constrained_star(
 
 
 # ============================================================================
-# Plot 5: constrained MNIST inpainting
+# Constrained MNIST inpainting
 # ============================================================================
 
 
@@ -561,7 +404,6 @@ def plot_constrained_mnist(
         model, normalizer = _load_model("mnist")
         from problems.mnist import _reference_and_mask
 
-        inpaint = _constraint("mnist")
         reference, mask = _reference_and_mask()
         data = {"reference": np.asarray(reference), "mask": np.asarray(mask)}
         x, _, _ = generate_unconstrained(
@@ -578,20 +420,20 @@ def plot_constrained_mnist(
             rescale_factor=1.0,
         )
         data["ldf"] = np.asarray(jnp.clip(x, 0.0, 1.0))
-        x, _ = generate_pigdm(
+        x, _, _ = pigdm.generate(
             model,
             normalizer,
-            inpaint,
+            _constraint("mnist"),
             num_samples=num_samples,
             dt=0.01,
             guidance_scale=1.0,
             eps_reg=1e-4,
         )
         data["pigdm"] = np.asarray(jnp.clip(x, 0.0, 1.0))
-        x, _ = generate_pcfm(
+        x, _, _ = pcfm.generate(
             model,
             normalizer,
-            inpaint,
+            _constraint("mnist"),
             num_samples=num_samples,
             num_steps=100,
         )
@@ -626,24 +468,31 @@ def plot_constrained_mnist(
     ax_ref.axis("off")
 
     # 2x2 grid of sample panels with consistent margins.
-    m = 0.0   # equal margin fraction on all four sides of the image grid
+    m = 0.0  # equal margin fraction on all four sides of the image grid
     title_h = 0.10  # fraction of panel height reserved for the title above
     panel_figs = right_fig.subfigures(2, 2, wspace=0.08, hspace=0.08)
     for i, (key, title) in enumerate(panels):
         sf = panel_figs[i // 2, i % 2]
         sf.set_facecolor("#f0f0f0")
-        sf.text(0.5, 0.98, title, ha="center", va="top",
-                transform=sf.transSubfigure)
+        sf.text(
+            0.5, 0.98, title, ha="center", va="top", transform=sf.transSubfigure
+        )
         axes = np.asarray(sf.subplots(grid, grid))
         sf.subplots_adjust(
-            left=m, right=1 - m, bottom=m, top=1 - m - title_h,
-            hspace=0.02, wspace=0.02,
+            left=m,
+            right=1 - m,
+            bottom=m,
+            top=1 - m - title_h,
+            hspace=0.02,
+            wspace=0.02,
         )
         for r in range(grid):
             for c in range(grid):
                 axes[r, c].imshow(
                     _cached(data, key)[r * grid + c].squeeze(-1),
-                    cmap="gray", vmin=0, vmax=1,
+                    cmap="gray",
+                    vmin=0,
+                    vmax=1,
                 )
                 axes[r, c].axis("off")
 
@@ -654,7 +503,7 @@ def plot_constrained_mnist(
 
 
 # ============================================================================
-# Plot 6: inequality-constrained star
+# Inequality-constrained star
 # ============================================================================
 
 
@@ -728,7 +577,7 @@ def plot_inequality_star(
 
 
 # ============================================================================
-# Plot 7: violation vs number of steps (dual flow p=2 vs penalty-only)
+# Violation vs number of steps (dual flow p=2 vs penalty-only)
 # ============================================================================
 
 
@@ -755,20 +604,31 @@ def plot_violation_vs_steps(
         for key, rescale_factor in (("exp2", 1.0), ("penalty", 0.0)):
             records = []  # list of (num_steps, violation) per penalty
             for pw in penalties:
-                x, _, n = ldf.generate(
-                    model,
-                    normalizer,
-                    _circle(),
-                    num_samples=num_samples,
-                    dt=0.01,
-                    penalty_weight=pw,
-                    rescale_factor=rescale_factor,
-                    rescale_exponent=2.0,
-                    solver=diffrax.Dopri5(),
-                    stepsize_controller=diffrax.PIDController(
-                        rtol=tol, atol=tol, dtmin=1e-5,
-                    ),
-                )
+                # Stiff settings (large penalty_weight, tight tol) can make
+                # the adaptive solver fail outright. Record the point as nan
+                # rather than losing the whole sweep; it is dropped at plot
+                # time.
+                try:
+                    x, _, n = ldf.generate(
+                        model,
+                        normalizer,
+                        _circle(),
+                        num_samples=num_samples,
+                        dt=0.01,
+                        penalty_weight=pw,
+                        rescale_factor=rescale_factor,
+                        rescale_exponent=2.0,
+                        solver=diffrax.Dopri5(),
+                        stepsize_controller=diffrax.PIDController(
+                            rtol=tol,
+                            atol=tol,
+                            dtmin=1e-5,
+                        ),
+                    )
+                except Exception:
+                    print(f"  {key}, pw={pw}, generation failed.")
+                    records.append((None, float("nan")))
+                    continue
                 viol = float(jnp.mean(jnp.abs(_circle().fn(x))))
                 records.append((int(n) if n is not None else None, viol))
                 print(f"  {key}, pw={pw}, steps={n}, violation={viol:.4f}")
@@ -786,12 +646,21 @@ def plot_violation_vs_steps(
         ("penalty", "C2", "^", "Penalty only"),
     ]
     for key, color, marker, label in configs:
-        pairs = sorted(r for r in results[key] if r[0] is not None)
+        pairs = sorted(
+            r
+            for r in results[key]
+            if r[0] is not None and not np.isnan(r[1])
+        )
         steps = [r[0] for r in pairs]
         viols = [r[1] for r in pairs]
         ax.plot(
-            steps, viols, color=color, marker=marker,
-            linestyle="--", alpha=0.8, label=label,
+            steps,
+            viols,
+            color=color,
+            marker=marker,
+            linestyle="--",
+            alpha=0.8,
+            label=label,
         )
 
     ax.set_xlabel("Denoising Steps")
@@ -807,7 +676,7 @@ def plot_violation_vs_steps(
 
 
 # ============================================================================
-# Plot 8: PCFM flow paths with 1 vs 8 projection iterations
+# PCFM flow paths with 1 vs 8 projection iterations
 # ============================================================================
 
 
@@ -836,10 +705,10 @@ def plot_pcfm_projection_iters(
         model, normalizer = _load_model("star")
         data = {}
         for n_iters, _ in iter_configs:
-            x, xs = generate_pcfm(
+            x, xs, _  = pcfm.generate(
                 model,
                 normalizer,
-                _circle().fn,
+                _circle(),
                 num_samples=num_samples,
                 num_steps=100,
                 num_projection_iters=n_iters,
@@ -864,12 +733,19 @@ def plot_pcfm_projection_iters(
         for i in range(n_show):
             ax.plot(xs[:, i, 0], xs[:, i, 1], lw=1.0, alpha=0.7, color=color)
         ax.scatter(
-            xs[0, :n_show, 0], xs[0, :n_show, 1],
-            s=15, color="k", alpha=0.5, label="start",
+            xs[0, :n_show, 0],
+            xs[0, :n_show, 1],
+            s=15,
+            color="k",
+            alpha=0.5,
+            label="start",
         )
         ax.scatter(
-            xs[-1, :n_show, 0], xs[-1, :n_show, 1],
-            s=15, color=color, label="end",
+            xs[-1, :n_show, 0],
+            xs[-1, :n_show, 1],
+            s=15,
+            color=color,
+            label="end",
         )
         ax.set_xlim(-2, 2)
         ax.set_ylim(-2, 2)
@@ -891,7 +767,6 @@ def plot_pcfm_projection_iters(
 # ============================================================================
 
 PLOTS = {
-    "generation_times": plot_generation_times,
     "violation_vs_penalty": plot_violation_vs_penalty,
     "mnist_violation_vs_penalty": plot_mnist_violation_vs_penalty,
     "constrained_star": plot_constrained_star,

@@ -217,6 +217,7 @@ uv run -m cfm.cli sweep experiments/table1.toml --check-baseline
 # train unconstrained flow matching models
 uv run -m cfm.cli train --problem star
 uv run -m cfm.cli train --problem mnist
+uv run -m cfm.cli train --problem obstacles
 
 # create and save figures to plots/figures
 uv run python plots.py --plot all --regenerate
