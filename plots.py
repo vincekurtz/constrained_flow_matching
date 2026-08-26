@@ -503,6 +503,102 @@ def plot_constrained_mnist(
 
 
 # ============================================================================
+# Mini MNIST inpainting (one sample per method)
+# ============================================================================
+
+
+def plot_mnist_mini(
+    regenerate: bool = False,
+    seed: int = 8,
+):
+    """One row: reference, then a single sample from each method.
+
+    A compact version of :func:`plot_constrained_mnist` for the intro figure.
+    All four samples start from the same initial noise (``seed``), so the
+    panels differ only in how the constraint is imposed.
+    """
+    _ensure_dirs()
+    data_file = DATA_DIR / "mnist_mini.pkl"
+
+    if regenerate or not data_file.exists():
+        print("[mnist_mini] regenerating raw data ...")
+        model, normalizer = _load_model("mnist")
+        from problems.mnist import _reference_and_mask
+
+        reference, mask = _reference_and_mask()
+        data = {"reference": np.asarray(reference), "mask": np.asarray(mask)}
+
+        def _one(x):
+            return np.asarray(jnp.clip(x, 0.0, 1.0))[0]
+
+        x, _, _ = generate_unconstrained(
+            model, normalizer, num_samples=1, dt=0.01, seed=seed
+        )
+        data["unconstrained"] = _one(x)
+        x, _, _ = ldf.generate(
+            model,
+            normalizer,
+            _constraint("mnist"),
+            num_samples=1,
+            dt=0.01,
+            seed=seed,
+            penalty_weight=10.0,
+            rescale_factor=1.0,
+        )
+        data["ldf"] = _one(x)
+        x, _, _ = pigdm.generate(
+            model,
+            normalizer,
+            _constraint("mnist"),
+            num_samples=1,
+            dt=0.01,
+            seed=seed,
+            guidance_scale=1.0,
+            eps_reg=1e-4,
+        )
+        data["pigdm"] = _one(x)
+        x, _, _ = pcfm.generate(
+            model,
+            normalizer,
+            _constraint("mnist"),
+            num_samples=1,
+            num_steps=100,
+            seed=seed,
+        )
+        data["pcfm"] = _one(x)
+        with open(data_file, "wb") as f:
+            pickle.dump(data, f)
+
+    with open(data_file, "rb") as f:
+        data = pickle.load(f)
+
+    ref = data["reference"]
+    mask = data["mask"]
+    # Dim the region being inpainted, as in the full MNIST figure.
+    masked_ref = np.where(mask, ref, 0.5 * ref)
+
+    # Short titles: the registry labels are too wide for a one-row figure.
+    panels = [
+        (masked_ref, "Reference"),
+        (_cached(data, "unconstrained"), "Unconstrained"),
+        (_cached(data, "ldf"), "LDF"),
+        (_cached(data, "pigdm"), "PiGDM"),
+        (_cached(data, "pcfm"), "PCFM"),
+    ]
+
+    fig, axes = plt.subplots(1, len(panels), figsize=(2.0 * len(panels), 2.3))
+    for ax, (img, title) in zip(axes, panels):
+        ax.imshow(img.squeeze(-1), cmap="gray", vmin=0, vmax=1)
+        ax.set_title(title, fontsize=12)
+        ax.axis("off")
+    fig.tight_layout()
+    out = FIG_DIR / "mnist_mini.png"
+    fig.savefig(out, dpi=150, bbox_inches="tight")
+    print(f"[mnist_mini] wrote {out}")
+    plt.close(fig)
+
+
+# ============================================================================
 # Inequality-constrained star
 # ============================================================================
 
@@ -771,6 +867,7 @@ PLOTS = {
     "mnist_violation_vs_penalty": plot_mnist_violation_vs_penalty,
     "constrained_star": plot_constrained_star,
     "constrained_mnist": plot_constrained_mnist,
+    "mnist_mini": plot_mnist_mini,
     "inequality_star": plot_inequality_star,
     "violation_vs_steps": plot_violation_vs_steps,
     "pcfm_projection_iters": plot_pcfm_projection_iters,
