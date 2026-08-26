@@ -75,7 +75,7 @@ def sample_scene(seed: int, num_obstacles: int) -> Tuple[jax.Array, jax.Array]:
     for _ in range(100):  # scene attempts
         centers, radii = [], []
         for _ in range(200 * num_obstacles):  # placement attempts
-            radius = rng.uniform(0.15, 0.3)
+            radius = rng.uniform(0.05, 0.3)
             s = rng.uniform(0.15, 0.85)
             offset = np.array(
                 [rng.uniform(-0.1, 0.1), rng.uniform(-0.35, 0.35)]
