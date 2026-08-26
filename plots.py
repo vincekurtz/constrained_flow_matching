@@ -34,7 +34,9 @@ FIG_DIR = Path("plots/figures")
 # Which methods appear in the comparison figures, in plotting order. Labels
 # come from the registry so a rename lands here too.
 METHODS = ("ldf", "pigdm", "pcfm")
-METHOD_COLORS = {"ldf": "C0", "pigdm": "C1", "pcfm": "C2", "penalty": "C3"}
+METHOD_COLORS = {
+    "ldf": "C0", "pigdm": "C1", "pcfm": "C2", "penalty": "C3", "cbf": "C4",
+}
 METHOD_NAMES = {name: methods.get(name).label for name in METHODS}
 
 
@@ -949,6 +951,162 @@ def plot_obstacle_avoidance(
 
 
 # ============================================================================
+# Obstacle avoidance: CBF vs LDF across scene difficulty
+# ============================================================================
+
+
+def plot_obstacle_comparison(
+    regenerate: bool = False,
+    num_samples: int = 40,
+    dt: float = 0.002,
+    rows=((1, 1), (3, 2), (5, 3), (7, 4)),
+):
+    """Unconstrained / CBF / LDF paths, one row per scene difficulty.
+
+    An extended version of :func:`plot_obstacle_avoidance`. Every row is a
+    different scene -- ``rows`` gives ``(num_obstacles, seed)`` pairs, and the
+    seed drives both the obstacle layout and the initial noise, so the rows
+    are independent samples rather than the same paths four times over.
+
+    Both methods integrate at the same ``dt`` so the comparison is at equal
+    step count. The CBF filter uses its registry default ``qp="elastic"``
+    rather than the ``qp="exact"`` the obstacles problem pins for the paper
+    table: at this step size the exact QP hits mutually infeasible barrier
+    conditions and fails outright on every row here, leaving nothing to plot.
+
+    Even elastic, the CBF interior-point solve returns a non-finite
+    correction on the very first step for a fair share of samples, and those
+    paths are gone from the panel rather than drawn badly. Each panel is
+    annotated with how many of its paths collided and how many diverged, so
+    the missing ones stay visible in the figure.
+    """
+    _ensure_dirs()
+    data_file = DATA_DIR / "obstacle_comparison.pkl"
+    keys = ("unconstrained", "cbf", "ldf")
+
+    if regenerate or not data_file.exists():
+        print("[obstacle_comparison] regenerating raw data ...")
+        from problems import obstacles as obstacle_problem
+
+        model, normalizer = _load_model("obstacles")
+        problem = problems.get("obstacles")
+        data = {"rows": []}
+        for num_obstacles, seed in rows:
+            constraint = problem.make_constraint(
+                scene_seed=seed, num_obstacles=num_obstacles
+            )
+            centers, radii = obstacle_problem._LAST_SCENE["obstacles"]
+            row = {
+                "num_obstacles": num_obstacles,
+                "seed": seed,
+                "centers": np.asarray(centers),
+                "radii": np.asarray(radii),
+            }
+            x, _, _ = generate_unconstrained(
+                model, normalizer, num_samples=num_samples, dt=dt, seed=seed
+            )
+            row["unconstrained"] = np.asarray(x)
+            for name in ("cbf", "ldf"):
+                gains = problem.gains_for(name)
+                if name == "cbf":
+                    gains["qp"] = "elastic"
+                x, _, _ = methods.get(name).run(
+                    model,
+                    normalizer,
+                    constraint,
+                    num_samples=num_samples,
+                    dt=dt,
+                    seed=seed,
+                    **gains,
+                )
+                row[name] = np.asarray(x)
+            print(f"  {num_obstacles} obstacles (seed {seed}):")
+            for name in keys:
+                print(f"    {name}:")
+                obstacle_problem.report_violations(
+                    jnp.asarray(row[name]), centers, radii
+                )
+            data["rows"].append(row)
+        with open(data_file, "wb") as f:
+            pickle.dump(data, f)
+
+    with open(data_file, "rb") as f:
+        data = pickle.load(f)
+
+    from cfm.plotting import plot_paths
+    from problems.obstacle_scene import GOAL, PLOT_SUBSAMPLE, START, path
+
+    def _stats(knots, centers, radii):
+        """(collisions, divergences, total) for one panel's paths.
+
+        Collisions are checked densely along the spline, as in
+        ``problems.obstacles.report_violations``, so they reflect the swept
+        path rather than the constraint residual.
+        """
+        knots = jnp.asarray(knots)
+        diverged = int(jnp.sum(jnp.any(~jnp.isfinite(knots), axis=(1, 2))))
+        dense = path(knots, 50)
+        dists = jnp.linalg.norm(
+            dense[:, :, None, :] - centers[None, None, :, :], axis=-1
+        )
+        worst = jnp.max(radii[None, None, :] - dists, axis=(1, 2))
+        return int(jnp.sum(worst > 0.0)), diverged, knots.shape[0]
+
+    titles = {"unconstrained": "Unconstrained", "cbf": "CBF", "ldf": "LDF"}
+    colors = dict(METHOD_COLORS, unconstrained="gray")
+
+    fig, axes = plt.subplots(
+        len(data["rows"]), len(keys),
+        figsize=(4.2 * len(keys), 3.4 * len(data["rows"])),
+        sharex=True, sharey=True,
+    )
+    for r, row in enumerate(data["rows"]):
+        # The obstacles go on all three panels, including the unconstrained
+        # one: the model never sees them, and the point of that column is
+        # watching the unconstrained paths run straight through them.
+        obstacles = (row["centers"], row["radii"])
+        for c, key in enumerate(keys):
+            ax = axes[r, c]
+            plot_paths(
+                np.asarray(path(jnp.asarray(row[key]), PLOT_SUBSAMPLE)),
+                obstacles=obstacles,
+                start=START,
+                goal=GOAL,
+                ax=ax,
+                title=titles[key] if r == 0 else "",
+                color=colors[key],
+                alpha=0.6,
+            )
+            # plot_paths adds a start/goal legend to every panel; one is
+            # enough for the whole figure.
+            if (r, c) != (0, 0):
+                ax.get_legend().remove()
+            ax.set_xticklabels([])
+            ax.set_yticklabels([])
+
+            hits, diverged, total = _stats(row[key], *obstacles)
+            note = f"{hits}/{total} collide"
+            if diverged:
+                note += f", {diverged}/{total} diverged"
+            ax.text(
+                0.03, 0.03, note, transform=ax.transAxes, fontsize=11,
+                ha="left", va="bottom",
+                bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="0.8",
+                          alpha=0.85),
+            )
+        # The paths never leave |y| < 1, so the square limits plot_paths
+        # applies would leave four rows of mostly empty figure.
+        axes[r, 0].set_ylim(-1.2, 1.2)
+        n = row["num_obstacles"]
+        axes[r, 0].set_ylabel(f"{n} obstacle{'s' if n != 1 else ''}")
+    fig.tight_layout()
+    out = FIG_DIR / "obstacle_comparison.png"
+    fig.savefig(out, dpi=150)
+    print(f"[obstacle_comparison] wrote {out}")
+    plt.close(fig)
+
+
+# ============================================================================
 # CLI
 # ============================================================================
 
@@ -962,6 +1120,7 @@ PLOTS = {
     "violation_vs_steps": plot_violation_vs_steps,
     "pcfm_projection_iters": plot_pcfm_projection_iters,
     "obstacle_avoidance": plot_obstacle_avoidance,
+    "obstacle_comparison": plot_obstacle_comparison,
 }
 
 
