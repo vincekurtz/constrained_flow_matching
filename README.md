@@ -165,6 +165,64 @@ solve fails outright.
 uv run -m cfm.cli generate --problem obstacles --method cbf --qp elastic
 ```
 
+### D4RL locomotion
+
+The Walker2D and Hopper examples from the
+[SafeFlowMatcher](https://arxiv.org/abs/2509.24243) paper. A flow model is
+trained *unconditionally* on 32-step windows of the D4RL medium-expert
+demonstrations, laid out the way Diffuser lays out a plan --
+`(horizon, action_dim + obs_dim)`, actions first. At inference time a single
+speed-dependent ceiling is imposed at every timestep of the window,
+
+```math
+h(x)_t = z_t + \phi\, v_{z,t} - h_r \le 0
+```
+
+where `z` is the torso height and `v_z` its vertical velocity. That is the
+barrier of SafeFlowMatcher Appendix D.2; the paper states the form but no
+numbers, so `h_r` and `phi` come from
+[SafeDiffuser](https://arxiv.org/abs/2306.00148), whose locomotion setup
+SafeFlowMatcher says it reuses: `h_r = 1.4` m for Walker2D, `1.6` m for
+Hopper, `phi = 0.1` s for both. Unlike SafeDiffuser, which converts `h_r` and
+`z` to normalized units but applies `phi` to an already-normalized `v_z`, the
+residual here is written entirely in metres and metres per second.
+
+The thresholds bind on the real data without retuning: 35% of Walker2D windows
+and 29% of Hopper windows exceed the roof, and so do about a third of the
+model's unconstrained samples.
+
+```bash
+# train (about 70 seconds each on a GPU)
+uv run -m cfm.cli train --problem walker2d
+uv run -m cfm.cli train --problem hopper
+
+# unconditional generation
+uv run -m cfm.cli generate --problem walker2d
+
+# enforce the roof
+uv run -m cfm.cli generate --problem walker2d --method ldf
+uv run -m cfm.cli generate --problem hopper --method ldf --height-limit 1.5
+```
+
+`--height-limit` and `--phi` move the roof; they default to the paper's
+values. The plot shows torso-height traces against the roof, the per-timestep
+residual, and the `(z, v_z)` phase plane with the constraint boundary drawn,
+which is where a roof that fails to bind would be obvious. The roof on the
+height panel is not a hard cap on `z` -- the constraint bounds `z + phi*v_z`,
+so a window descending fast enough sits above it and is still feasible.
+
+The residual is affine in `x` and its rows have disjoint support, so a single
+Gauss-Newton step is an exact projection -- `--num-projection-iters 1`, against
+the obstacle scene's 5. At the default `dt = 0.01` LDF takes the worst
+violation from `1.7e-01` unconstrained to `6.0e-07` on Walker2D and
+`1.4e-01` to `1.1e-06` on Hopper, without moving the samples off the data
+manifold: the fraction of entries outside the training range is unchanged from
+the unconstrained model.
+
+The first run downloads the D4RL v2 files (about 770 MB for both) into
+`data/d4rl/`. The official host is unreachable, so they come from the
+`imone/D4RL` mirror on HuggingFace.
+
 ### MNIST
 
 The MNIST example trains a UNet-based flow-matching model on handwritten digits

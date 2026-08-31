@@ -9,6 +9,7 @@ dependencies = [
     "diffrax>=0.7.0",
     "equinox>=0.13.8",
     "flax>=0.12.5",
+    "h5py>=3.12",
     "jax[cuda13]>=0.9.1",
     "matplotlib>=3.10.8",
     "qpax>=0.1.4",

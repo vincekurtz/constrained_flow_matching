@@ -76,7 +76,15 @@ class Problem:
 def _registry() -> Dict[str, Problem]:
     # Imported lazily and inside the function so that importing one problem
     # does not drag in every dataset (MNIST in particular touches the disk).
-    from problems import bimodal, mnist, obstacles, spiral, star, unit_circle
+    from problems import (
+        bimodal,
+        locomotion,
+        mnist,
+        obstacles,
+        spiral,
+        star,
+        unit_circle,
+    )
 
     entries = (
         bimodal.PROBLEM,
@@ -85,6 +93,7 @@ def _registry() -> Dict[str, Problem]:
         unit_circle.PROBLEM,
         mnist.PROBLEM,
         obstacles.PROBLEM,
+        *locomotion.PROBLEMS,
     )
     return {p.name: p for p in entries}
 
