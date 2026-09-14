@@ -36,6 +36,12 @@ Install dependencies with [uv](https://docs.astral.sh/uv/):
 uv sync --dev
 ```
 
+The locomotion figures additionally render a MuJoCo scene, which nothing else
+in the repo needs:
+```
+uv sync --group render
+```
+
 Run unit tests:
 ```
 uv run pytest
@@ -226,6 +232,28 @@ The first run downloads the D4RL v2 files (about 770 MB for both) into
 `data/d4rl/`. The official host is unreachable, so they come from the
 `imone/D4RL` mirror on HuggingFace.
 
+**Phase portraits.** `plots.py` draws the `(z, v_z)` plane for each
+environment -- every timestep of the training windows in grey, every timestep
+of the constrained samples in blue, against the ceiling -- beside a MuJoCo
+rendering of the robot with `z` and `v_z` marked on it, so the axes are
+something the reader has seen on the system:
+
+```bash
+uv run python plots.py --plot locomotion_walker2d --regenerate
+uv run python plots.py --plot locomotion_hopper --regenerate
+```
+
+The constraint, the roof, the seed, the sample count and the step size are
+the `generate` command's, so the figure is the example above and not a
+separate experiment. The boundary is the slanted line `z + phi*v_z = h_r`:
+because of the lookahead a window descending fast enough is feasible above
+`h_r`, and one rising fast enough is infeasible below it, which is why the
+grey cloud crosses it in one corner and not the other. Rendering a pose is
+exact apart from one coordinate: an observation is `qpos[1:] + qvel`, so
+every joint angle is read straight out of the window, and only the root
+x-position, which the observation drops, is recovered -- by integrating the
+root x-velocity at the 0.008 s control timestep.
+
 ### MNIST
 
 The MNIST example trains a UNet-based flow-matching model on handwritten digits
@@ -307,8 +335,11 @@ uv run -m cfm.cli sweep experiments/table1.toml --check-baseline
 uv run -m cfm.cli train --problem star
 uv run -m cfm.cli train --problem mnist
 uv run -m cfm.cli train --problem obstacles
+uv run -m cfm.cli train --problem walker2d
+uv run -m cfm.cli train --problem hopper
 
 # create and save figures to plots/figures
+# (the locomotion phase portraits need `uv sync --group render`)
 uv run python plots.py --plot all --regenerate
 
 # Table 1

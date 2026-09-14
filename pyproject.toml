@@ -24,6 +24,10 @@ dev = [
     "pytest>=9.0.2",
     "ruff>=0.15.4",
 ]
+render = [
+    "gymnasium>=1.3.0",
+    "mujoco>=3.13.0",
+]
 
 [tool.uv.sources]
 torch = { index = "pytorch-cpu" }

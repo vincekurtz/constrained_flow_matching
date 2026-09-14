@@ -14,9 +14,11 @@ Usage:
 import argparse
 import json
 import pickle
+from functools import partial
 from pathlib import Path
 import diffrax
 
+import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
 import numpy as np
@@ -1107,6 +1109,259 @@ def plot_obstacle_comparison(
 
 
 # ============================================================================
+# Locomotion phase portraits
+# ============================================================================
+
+# Framing for the robot panel: (width, height) in pixels, the world height it
+# covers in metres, and the world height at its centre. The pixel aspect is
+# roughly the shape of the panel the figure gives it -- an image axes is
+# aspect-locked, so whatever it does not match it pads with white -- and the
+# extent leaves room for a trailing leg, which reaches further back than the
+# robot is tall.
+POSE_PIXELS = (340, 460)
+POSE_EXTENT = 1.85
+POSE_CAMERA_Z = 0.83
+
+# Markers for the two clouds. Shape as well as colour, so the panel survives
+# being printed in greyscale and read by someone who cannot tell C0 from grey.
+TRAINING_STYLE = dict(marker="o", c="0.55", alpha=0.45, lw=0)
+GENERATED_STYLE = dict(marker="^", c="C0", alpha=0.5, lw=0)
+
+
+def _locomotion_samples(env, height_limit, phi, num_samples, seed, dt):
+    """Training windows and constrained samples for one environment.
+
+    Everything here is what ``cfm.cli generate --problem <env> --method ldf``
+    would do: the problem's own constraint with its default roof, its default
+    sample count, the registry's LDF gains, and the CLI's default seed and
+    step size. A figure generated against a hand-picked roof is a different
+    experiment from the one the rest of the repo reports.
+    """
+    from problems.locomotion import REFERENCE_WINDOWS, make_dataset
+    from problems.locomotion_spec import SPECS, resolve
+
+    spec = SPECS[env]
+    problem = problems.get(env)
+    model, normalizer = _load_model(env)
+    constraint = problem.make_constraint(height_limit=height_limit, phi=phi)
+
+    x, _, _ = methods.get("ldf").run(
+        model, normalizer, constraint,
+        num_samples=num_samples or problem.default_num_samples,
+        rng=jax.random.key(seed), dt=dt,
+        **problem.gains_for("ldf"),
+    )
+    limit, weight = resolve(spec, height_limit, phi)
+    # The same reference set the problem's own plot builds. It draws the
+    # first PLOT_WINDOWS of it and measures against the whole thing; here the
+    # rest of it is the pool the drawn pose is chosen from.
+    reference = make_dataset(
+        spec, max_windows=REFERENCE_WINDOWS
+    ).windows().numpy()
+    return {
+        "env": env,
+        "height_limit": limit,
+        "phi": weight,
+        "reference": np.asarray(reference),
+        "constrained": np.asarray(x),
+    }
+
+
+# Which frames of the demonstrations are worth drawing: standing on the floor
+# rather than mid-flight, and upright rather than pitched over. Most frames
+# fail one of the two, and one that does reads as the robot falling rather
+# than as a picture of the system.
+POSE_CLEARANCE = 0.01
+POSE_MAX_PITCH = 0.15
+
+
+def _pose_frame(renderer, spec, reference, num_windows=64):
+    """Pick a pose to draw, and render it.
+
+    Among the frames worth drawing this takes the one of median torso height,
+    so the panel shows an ordinary stance rather than the extreme the eye
+    would otherwise be drawn to.
+    """
+    from problems.locomotion_render import window_to_qpos
+
+    poses = np.concatenate(
+        [window_to_qpos(spec, window) for window in reference[:num_windows]]
+    )
+    # qpos is (x, z, pitch, joints...) for both models.
+    upright = np.abs(poses[:, 2]) < POSE_MAX_PITCH
+    grounded = np.array([
+        abs(renderer.ground_clearance(qpos)) < POSE_CLEARANCE
+        for qpos in poses
+    ])
+    usable = upright & grounded
+    candidates = poses[usable] if usable.any() else poses
+    heights = candidates[:, 1]
+    chosen = candidates[np.argsort(heights)[len(heights) // 2]]
+    return renderer.frame(chosen), float(chosen[1])
+
+
+def _draw_pose_panel(ax, renderer, frame, torso_z, label):
+    """The robot, with the two axes of the phase plane marked on it.
+
+    No constraint boundary here. It bounds ``z + phi * v_z``, which is not a
+    height a line across this panel could stand for, and the panel's job is
+    to say what ``z`` and ``v_z`` are -- the panel beside it is where the
+    constraint lives.
+    """
+    ax.imshow(frame)
+    ax.set_xlim(0, renderer.width)
+    ax.set_ylim(renderer.height, 0)
+
+    ground_row = renderer.row_of_z(0.0)
+    torso_row = renderer.row_of_z(torso_z)
+    torso_col = renderer.col_of_x(0.0, 0.0)
+    ax.axhline(ground_row, color="0.35", lw=1.4)
+
+    # z is measured to the torso centre, not to the top of the robot, and a
+    # figure that does not say so invites the reader to check the wrong
+    # thing.
+    arrow_col = torso_col - 0.30 * renderer.width
+    ax.annotate(
+        "", xy=(arrow_col, torso_row), xytext=(arrow_col, ground_row),
+        arrowprops=dict(arrowstyle="<->", color="0.25", lw=1.2),
+    )
+    ax.text(
+        arrow_col - 6, (torso_row + ground_row) / 2, "$z$",
+        fontsize=13, ha="right", va="center", color="0.25",
+    )
+    ax.plot([arrow_col, torso_col], [torso_row, torso_row],
+            color="0.25", lw=0.8, ls=":")
+    ax.plot(torso_col, torso_row, "o", ms=6, mfc="white", mec="0.25",
+            mew=1.2, zorder=3)
+    tip = torso_row - 0.11 * renderer.height
+    ax.annotate(
+        "", xy=(torso_col, tip), xytext=(torso_col, torso_row),
+        arrowprops=dict(arrowstyle="->", color="C0", lw=1.8),
+    )
+    ax.text(torso_col + 9, tip, "$v_z$", fontsize=13, ha="left",
+            va="center", color="C0")
+
+    ax.set_xticks([])
+    ax.set_yticks([])
+    for spine in ax.spines.values():
+        spine.set_visible(False)
+    ax.set_title(label, fontsize=15)
+
+
+def _draw_phase_panel(ax, spec, data, point_size):
+    """The (z, v_z) cloud, training behind and constrained samples on top."""
+    from problems.locomotion import PLOT_WINDOWS
+
+    training = data["reference"][:PLOT_WINDOWS]
+    generated = data["constrained"]
+    limit, weight = data["height_limit"], data["phi"]
+    z_ref = training[..., spec.z_index].ravel()
+    vz_ref = training[..., spec.vz_index].ravel()
+    z_gen = generated[..., spec.z_index].ravel()
+    vz_gen = generated[..., spec.vz_index].ravel()
+
+    # The grey goes down slightly larger, so it still shows around the blue
+    # where the two clouds overlap.
+    ax.scatter(z_ref, vz_ref, s=point_size * 1.6,
+               label="training data (unconstrained)", **TRAINING_STYLE)
+    ax.scatter(z_gen, vz_gen, s=point_size * 1.35, label="generated, LDF",
+               **GENERATED_STYLE)
+
+    ax.set_xlim(
+        min(z_ref.min(), z_gen.min()) - 0.03,
+        max(z_ref.max(), z_gen.max()) + 0.03,
+    )
+    ax.set_ylim(
+        min(vz_ref.min(), vz_gen.min()) - 0.2,
+        max(vz_ref.max(), vz_gen.max()) + 0.2,
+    )
+
+    # The boundary z + phi*v_z = h_r, slanted because of the lookahead: a
+    # window descending fast enough is feasible above h_r, and one rising
+    # fast enough is infeasible below it. Drawn across the axes rather than
+    # over the data range, so the shaded side reaches the corners.
+    vz_line = np.array(ax.get_ylim())
+    z_line = limit - weight * vz_line
+    ax.fill_betweenx(vz_line, z_line, ax.get_xlim()[1], color="C3",
+                     alpha=0.08, lw=0)
+    ax.plot(z_line, vz_line, color="C3", ls="--", lw=1.8,
+            label="constraint")
+
+    ax.set_xlabel("torso height $z$ (m)")
+    ax.set_ylabel("vertical velocity $v_z$ (m/s)")
+    ax.grid(alpha=0.3)
+    # Above the axes rather than inside them: the cloud fills the frame, and
+    # in the Hopper panel every interior corner the legend could take has
+    # part of the hop cycle in it.
+    ax.legend(
+        loc="lower left", bbox_to_anchor=(0.0, 1.01, 1.0, 0.1), mode="expand",
+        ncols=3, fontsize=11, frameon=False, markerscale=2.5,
+        borderaxespad=0.0,
+    )
+
+
+def plot_locomotion_phase(
+    env: str,
+    regenerate: bool = False,
+    num_samples=None,
+    height_limit=None,
+    phi=None,
+    seed: int = 0,
+    dt: float = 0.01,
+    point_size: float = 14.0,
+):
+    """A rendering of the robot beside the phase plane it moves in.
+
+    The left panel is one frame of the demonstrations with the torso height
+    and its velocity marked on it, so the axes of the right panel are
+    something the reader has seen on the robot rather than two names. The
+    right panel is every timestep of the training windows against every
+    timestep of the constrained samples, with the constraint boundary drawn.
+
+    The arguments mirror the ``generate`` command's, and their defaults are
+    its defaults: leaving ``height_limit`` and ``phi`` as None takes the
+    problem's own roof, exactly as the CLI does.
+    """
+    _ensure_dirs()
+    data_file = DATA_DIR / f"locomotion_{env}.pkl"
+
+    if regenerate or not data_file.exists():
+        print(f"[locomotion_{env}] regenerating raw data ...")
+        data = _locomotion_samples(
+            env, height_limit, phi, num_samples, seed, dt
+        )
+        with open(data_file, "wb") as f:
+            pickle.dump(data, f)
+
+    with open(data_file, "rb") as f:
+        data = pickle.load(f)
+
+    from problems.locomotion_render import LocomotionRenderer
+    from problems.locomotion_spec import SPECS
+
+    spec = SPECS[env]
+    renderer = LocomotionRenderer(
+        spec, width=POSE_PIXELS[0], height=POSE_PIXELS[1],
+        extent=POSE_EXTENT, camera_z=POSE_CAMERA_Z,
+    )
+    try:
+        frame, torso_z = _pose_frame(renderer, spec, data["reference"])
+        fig, axes = plt.subplots(
+            1, 2, figsize=(11.0, 4.6),
+            gridspec_kw={"width_ratios": (1.0, 2.1)},
+        )
+        _draw_pose_panel(axes[0], renderer, frame, torso_z, spec.label)
+        _draw_phase_panel(axes[1], spec, data, point_size)
+        fig.tight_layout()
+        out = FIG_DIR / f"locomotion_{env}.png"
+        fig.savefig(out, dpi=200)
+        print(f"[locomotion_{env}] wrote {out}")
+        plt.close(fig)
+    finally:
+        renderer.close()
+
+
+# ============================================================================
 # CLI
 # ============================================================================
 
@@ -1121,6 +1376,8 @@ PLOTS = {
     "pcfm_projection_iters": plot_pcfm_projection_iters,
     "obstacle_avoidance": plot_obstacle_avoidance,
     "obstacle_comparison": plot_obstacle_comparison,
+    "locomotion_walker2d": partial(plot_locomotion_phase, "walker2d"),
+    "locomotion_hopper": partial(plot_locomotion_phase, "hopper"),
 }
 
 
