@@ -17,13 +17,27 @@ from cfm.core.constraints import Constraint
 
 @dataclass(frozen=True)
 class TrainConfig:
-    """Hyperparameters for one problem's training run."""
+    """Hyperparameters for one problem's training run.
+
+    Attributes:
+        num_epochs: How many passes over the dataset.
+        batch_size: Samples per optimizer step.
+        learning_rate: Peak learning rate.
+        seed: Seed for the noise and time samples drawn during training.
+        print_frequency: Epochs between progress lines.
+        schedule: Learning-rate schedule, one of
+            ``cfm.training.SCHEDULES``.
+        ema_decay: Decay of a parameter moving average, or None to keep the
+            last iterate.
+    """
 
     num_epochs: int
     batch_size: int
     learning_rate: float = 1e-3
     seed: int = 0
     print_frequency: int = 10
+    schedule: str = "constant"
+    ema_decay: Optional[float] = None
 
 
 @dataclass(frozen=True)

@@ -24,7 +24,7 @@ from flax import nnx
 
 from cfm.core.constraints import Constraint
 from cfm.datasets.d4rl_locomotion import D4RLWindowDataset
-from cfm.models.flow import FlowMLP
+from cfm.models.temporal_unet import FlowTemporalUNet
 from problems import Problem, TrainConfig
 from problems.locomotion_spec import (
     HORIZON,
@@ -61,16 +61,19 @@ def make_dataset(spec: LocomotionSpec, max_windows=MAX_WINDOWS):
     )
 
 
-def make_model(spec: LocomotionSpec) -> FlowMLP:
+def make_model(spec: LocomotionSpec) -> FlowTemporalUNet:
     """The flow model over whole trajectory windows.
 
-    A plain MLP over the flattened window: 736 inputs for Walker2D, 448 for
-    Hopper, the same scale as the MNIST example.
+    A temporal U-Net over the horizon, with the transition entries as
+    channels. A flattened MLP of the same parameter count fits the marginals
+    just as well but generates visibly jagged windows, because nothing stops
+    it from moving one timestep independently of its neighbours; see the
+    module docstring of ``cfm/models/temporal_unet.py``.
     """
-    return FlowMLP(
+    return FlowTemporalUNet(
         data_shape=(HORIZON, spec.transition_dim),
         time_embedding_size=32,
-        hidden_sizes=(1024, 1024, 1024),
+        channels=(64, 128, 256),
         rngs=nnx.Rngs(0),
     )
 
@@ -224,7 +227,17 @@ def make_problem(spec: LocomotionSpec) -> Problem:
         train=TrainConfig(
             num_epochs=200,
             batch_size=256,
-            learning_rate=1e-4,
+            # Cosine decay is what makes the windows smooth rather than
+            # merely correct: at a constant rate the last iterate is still
+            # bouncing around the minimum, and on the near-constant torso
+            # height that jitter is larger than the signal. Decaying to
+            # 5% of the peak cuts the height trace's step-to-step
+            # roughness from 6.5x the training data's to 5.2x.
+            learning_rate=2e-4,
+            schedule="cosine",
+            # Worth about one percent of the marginal spread, consistently
+            # across seeds, and costs no measurable training time.
+            ema_decay=0.999,
             print_frequency=10,
         ),
         make_constraint=partial(build_constraint, spec),

@@ -31,9 +31,10 @@ import jax
 
 from cfm.core.constraints import Constraint, inequality
 
-# Window length. SafeFlowMatcher's own config/locomotion.py uses 32; the H=600
-# quoted in the paper's tables would need a temporal UNet, which the repo's
-# FlowMLP is not.
+# Window length, matching SafeFlowMatcher's own config/locomotion.py. The
+# H=600 quoted in the paper's tables would also fit the temporal U-Net the
+# problem trains, but costs proportionally more to train and to integrate.
+# Any multiple of four works; see cfm/models/temporal_unet.py.
 HORIZON = 32
 
 

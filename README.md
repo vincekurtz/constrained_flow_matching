@@ -52,7 +52,7 @@ uv run ruff check
 cfm/            the library
   core/         solver scaffolding, constraints, common utilities
   methods/      LDF and baselines, plus the method registry
-  models/       flow architectures (MLP, UNet, normalizer)
+  models/       flow architectures (MLP, image UNet, temporal UNet, normalizer)
   datasets/     training datasets
   cli.py        the command line entry point
   sweep.py      declarative benchmark sweeps
@@ -171,7 +171,10 @@ The Walker2D and Hopper examples from the
 [SafeFlowMatcher](https://arxiv.org/abs/2509.24243) paper. A flow model is
 trained *unconditionally* on 32-step windows of the D4RL medium-expert
 demonstrations, laid out the way Diffuser lays out a plan --
-`(horizon, action_dim + obs_dim)`, actions first. At inference time a single
+`(horizon, action_dim + obs_dim)`, actions first. The model is Diffuser's
+temporal U-Net, convolving along the horizon with the transition entries as
+channels; a flattened MLP fits the marginals equally well but generates
+visibly jagged windows. At inference time a single
 speed-dependent ceiling is imposed at every timestep of the window,
 
 ```math
@@ -188,11 +191,11 @@ Hopper, `phi = 0.1` s for both. Unlike SafeDiffuser, which converts `h_r` and
 residual here is written entirely in metres and metres per second.
 
 The thresholds bind on the real data without retuning: 35% of Walker2D windows
-and 29% of Hopper windows exceed the roof, and so do about a third of the
+and 29% of Hopper windows exceed the roof, and so do 31% and 26% of the
 model's unconstrained samples.
 
 ```bash
-# train (about 70 seconds each on a GPU)
+# train (about six minutes each on a GPU)
 uv run -m cfm.cli train --problem walker2d
 uv run -m cfm.cli train --problem hopper
 
@@ -214,8 +217,8 @@ so a window descending fast enough sits above it and is still feasible.
 The residual is affine in `x` and its rows have disjoint support, so a single
 Gauss-Newton step is an exact projection -- `--num-projection-iters 1`, against
 the obstacle scene's 5. At the default `dt = 0.01` LDF takes the worst
-violation from `1.7e-01` unconstrained to `6.0e-07` on Walker2D and
-`1.4e-01` to `1.1e-06` on Hopper, without moving the samples off the data
+violation from `1.2e-01` unconstrained to `9.5e-07` on Walker2D and
+`8.6e-02` to `1.6e-06` on Hopper, without moving the samples off the data
 manifold: the fraction of entries outside the training range is unchanged from
 the unconstrained model.
 

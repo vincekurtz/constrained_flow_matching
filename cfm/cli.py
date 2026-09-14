@@ -124,6 +124,8 @@ def cmd_train(args):
         learning_rate=cfg.learning_rate,
         seed=cfg.seed,
         print_frequency=cfg.print_frequency,
+        schedule=cfg.schedule,
+        ema_decay=cfg.ema_decay,
     )
     checkpoint.save(path, model, normalizer)
     print(f"Saved trained model and normalizer to {path}")

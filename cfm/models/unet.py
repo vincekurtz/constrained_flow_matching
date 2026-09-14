@@ -7,8 +7,12 @@ import jax.numpy as jnp
 from cfm.models.flow import SinusoidalPosEmb
 
 
-def _num_groups(channels: int) -> int:
-    """Return a group count for GroupNorm that evenly divides channels."""
+def group_count(channels: int) -> int:
+    """Return a group count for GroupNorm that evenly divides channels.
+
+    Shared with the temporal U-Net, whose channel counts are set by the
+    problem's transition width and so are not guaranteed to be nice.
+    """
     for g in (8, 4, 2, 1):
         if channels % g == 0:
             return g
@@ -34,7 +38,7 @@ class ResBlock(nnx.Module):
 
         self.norm1 = nnx.GroupNorm(
             in_channels,
-            num_groups=_num_groups(in_channels),
+            num_groups=group_count(in_channels),
             rngs=rngs,
         )
         self.conv1 = nnx.Conv(
@@ -46,7 +50,7 @@ class ResBlock(nnx.Module):
         )
         self.norm2 = nnx.GroupNorm(
             out_channels,
-            num_groups=_num_groups(out_channels),
+            num_groups=group_count(out_channels),
             rngs=rngs,
         )
         self.conv2 = nnx.Conv(
@@ -173,7 +177,7 @@ class FlowUNet(nnx.Module):
         # Output projection
         self.output_norm = nnx.GroupNorm(
             channels[0],
-            num_groups=_num_groups(channels[0]),
+            num_groups=group_count(channels[0]),
             rngs=rngs,
         )
         self.output_conv = nnx.Conv(

@@ -1,11 +1,30 @@
-from flax import nnx
-from typing import Tuple
-import jax.numpy as jnp
-import jax
-import optax
-from torch.utils.data import Dataset, DataLoader, default_collate
-from cfm.models.normalizer import Normalizer
+"""Flow-matching training.
+
+The loop is deliberately plain. Two options exist because the locomotion
+examples need them and a constant learning rate with the final weights was
+not enough there: a cosine learning-rate schedule, and an exponential moving
+average of the parameters. Both default to off, so every other problem
+trains exactly as before.
+"""
+
 from datetime import datetime
+from typing import Optional, Tuple
+
+import jax
+import jax.numpy as jnp
+import optax
+from flax import nnx
+from torch.utils.data import DataLoader, Dataset, default_collate
+
+from cfm.models.normalizer import Normalizer
+
+SCHEDULES = ("constant", "cosine")
+
+# Fraction of training spent warming the learning rate up from zero, and the
+# fraction of the peak it decays to. Standard values; the cosine schedule is
+# insensitive to both.
+WARMUP_FRACTION = 0.05
+FINAL_LR_FRACTION = 0.05
 
 
 def loss_fn(
@@ -35,6 +54,44 @@ def loss_fn(
     target = x1 - x0
     pred = model(xt, t)
     return jnp.mean(jnp.square(pred - target))
+
+
+def make_schedule(
+    learning_rate: float, num_steps: int, schedule: str
+) -> optax.Schedule:
+    """Build the learning-rate schedule.
+
+    Args:
+        learning_rate: Peak learning rate.
+        num_steps: Total number of optimizer steps the run will take.
+        schedule: ``"constant"``, or ``"cosine"`` for a warmup followed by
+            cosine decay to a small fraction of the peak.
+
+    Returns:
+        An optax schedule mapping step count to learning rate.
+    """
+    if schedule == "constant":
+        return optax.constant_schedule(learning_rate)
+    if schedule != "cosine":
+        raise ValueError(
+            f"unknown schedule {schedule!r}; expected one of {SCHEDULES}"
+        )
+    warmup = max(1, int(WARMUP_FRACTION * num_steps))
+    return optax.warmup_cosine_decay_schedule(
+        init_value=0.0,
+        peak_value=learning_rate,
+        warmup_steps=warmup,
+        decay_steps=max(num_steps, warmup + 1),
+        end_value=FINAL_LR_FRACTION * learning_rate,
+    )
+
+
+@jax.jit
+def ema_update(averaged, params, decay: float):
+    """Fold one step's parameters into the running average."""
+    return jax.tree.map(
+        lambda a, p: decay * a + (1.0 - decay) * p, averaged, params
+    )
 
 
 @nnx.jit
@@ -81,6 +138,8 @@ def train(
     learning_rate: float,
     seed: int = 0,
     print_frequency: int = 1,
+    schedule: str = "constant",
+    ema_decay: Optional[float] = None,
 ) -> Tuple[nnx.Module, Normalizer]:
     """Train a simple flow-matching policy on the given dataset.
 
@@ -89,9 +148,16 @@ def train(
         model: The flow model xdot = v(x, t) to train.
         num_epochs: The number of training epochs.
         batch_size: The size of each training batch.
-        learning_rate: The learning rate for the optimizer.
+        learning_rate: The learning rate for the optimizer, or the peak rate
+            when a schedule is used.
         seed: A random seed for reproducibility.
         print_frequency: How often to print training progress (in epochs).
+        schedule: Learning-rate schedule, one of ``SCHEDULES``.
+        ema_decay: Decay of an exponential moving average over the
+            parameters, e.g. 0.999. The averaged weights are what is
+            returned. None keeps the last iterate, which is noisier: SGD is
+            still bouncing around the minimum at the final step, and on a
+            flow model that noise shows up directly in the samples.
 
     Returns:
         The trained flow model v(x, t).
@@ -115,8 +181,18 @@ def train(
         "Batch size {batch.shape[0]} does not match expected {batch_size}"
     )
 
+    learning_rate = make_schedule(
+        learning_rate, num_epochs * len(dataloader), schedule
+    )
     optimizer = nnx.Optimizer(model, optax.adamw(learning_rate), wrt=nnx.Param)
     rng = jax.random.key(seed)
+
+    # The moving average starts at the initial weights. Early on it therefore
+    # lags badly, but with thousands of steps to go that bias is long gone by
+    # the time training ends.
+    averaged = (
+        nnx.state(model, nnx.Param) if ema_decay is not None else None
+    )
 
     # Compute normalizer stats from the full dataset before training
     normalizer = Normalizer.from_dataloader(dataloader)
@@ -137,6 +213,11 @@ def train(
             batch_loss = train_step(model, optimizer, batch, step_rng)
             loss += batch_loss
 
+            if averaged is not None:
+                averaged = ema_update(
+                    averaged, nnx.state(model, nnx.Param), ema_decay
+                )
+
         if (epoch + 1) % print_frequency == 0 or epoch == 0:
             loss = loss / len(dataloader)
             elapsed = datetime.now() - start_time
@@ -145,5 +226,8 @@ def train(
                 f" | Loss {loss:.4f}"
                 f" | Time {elapsed}"
             )
+
+    if averaged is not None:
+        nnx.update(model, averaged)
 
     return model, normalizer
