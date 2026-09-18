@@ -76,9 +76,9 @@ penalty_weight = 20.0
 
 # ---------------------------------------------------------------------------
 # Obstacle avoidance, at dt = 0.002. Two scenes, sparse and crowded, so the
-# table shows what happens as the constraints pile up. The CBF filter only
-# handles inequalities and so appears here and nowhere else; PCFM and PiGDM
-# only handle equalities and are dropped from these blocks automatically.
+# table shows what happens as the constraints pile up. These are inequality
+# constraints, so PCFM and PiGDM are dropped from the block automatically and
+# the CBF filter, which handles nothing else, joins it.
 # ---------------------------------------------------------------------------
 
 [[block]]
@@ -109,6 +109,28 @@ steps = [500]
 num_obstacles = 6
 scene_seed = 0
 
+[[block.gains]]
+method = "cbf"
+qp = "elastic"
+
+# ---------------------------------------------------------------------------
+# D4RL locomotion, at dt = 0.01. The same roof z + phi*vz <= h_r the example
+# in the README enforces, on both environments, so the table says what the
+# CBF filter and the dual flow each cost on a 32-step trajectory window with
+# one barrier row per timestep. Inequalities again, so PCFM and PiGDM drop
+# out and the CBF filter is in.
+# ---------------------------------------------------------------------------
+
+[[block]]
+problems = ["walker2d", "hopper"]
+methods = ["cbf", "ldf", "ldf_projected"]
+steps = [100]
+
+# Pinned rather than inherited, to say in the config what the rows ran with.
+# The rows of the roof residual have disjoint support, so the barrier
+# conditions are feasible together on paper; in practice the exact solve
+# still fails part-way through a Hopper sweep, and the relaxation is what
+# the locomotion registry already pins for that reason.
 [[block.gains]]
 method = "cbf"
 qp = "elastic"

@@ -133,8 +133,17 @@ def test_the_shipped_table1_config_expands():
     assert ("Obstacle avoidance (2 obstacles)", "LDF + projection") in rows
     assert ("Obstacle avoidance (6 obstacles)",
             "CBF safety filter (SafeFlow)") in rows
+    assert ("Walker2D (medium-expert)",
+            "CBF safety filter (SafeFlow)") in rows
+    assert ("Hopper (medium-expert)", "LDF + projection") in rows
     # Every obstacle case runs at dt = 0.002 and every CBF one relaxes the QP.
     obstacles = _rows(cases, "obstacles")
     assert {c.steps for c in obstacles} == {500}
     assert all(c.gains["qp"] == "elastic"
                for c in obstacles if c.method == "cbf")
+    # The locomotion rows run at the example's dt = 0.01, and relax the QP
+    # too: the exact solve fails part-way through a Hopper sweep.
+    locomotion = _rows(cases, "walker2d") + _rows(cases, "hopper")
+    assert {c.steps for c in locomotion} == {100}
+    assert all(c.gains["qp"] == "elastic"
+               for c in locomotion if c.method == "cbf")
