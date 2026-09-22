@@ -112,8 +112,12 @@ uv run -m cfm.cli generate --problem star --method pcfm
 
 The 2-D problems (`bimodal`, `spiral`, `star`, `unit_circle`) train in about a
 minute on a laptop CPU. `star` and `unit_circle` impose a unit-norm
-constraint; `unit_circle` also offers a right-half-plane inequality with
-`--constraint right_half`.
+constraint by default, and both also offer a right-half-plane inequality with
+`--constraint right_half`:
+
+```bash
+uv run -m cfm.cli generate --problem star --method ldf --constraint right_half
+```
 
 Per-problem gains are registered with the problem, so the commands above use
 the settings the paper uses. Any of them can be overridden on the command
