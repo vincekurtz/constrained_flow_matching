@@ -1453,10 +1453,11 @@ def _overview_star(ax, star, point_size):
     ax.axvline(0, color=CONSTRAINT_COLOR, ls="--", lw=1.0)
     x_unc = star.get("x_unc")
     if x_unc is not None:
-        ax.scatter(x_unc[:, 0], x_unc[:, 1], s=point_size,
+        ax.scatter(x_unc[:, 0], x_unc[:, 1], s=point_size * 1.6,
                    color=UNCONSTRAINED_COLOR, alpha=0.5, lw=0)
-    ax.scatter(star["x"][:, 0], star["x"][:, 1], s=point_size,
-               color=CONSTRAINED_COLOR, alpha=0.7, lw=0)
+    # Triangles, as in the hopper panel and the legend; sized as there.
+    ax.scatter(star["x"][:, 0], star["x"][:, 1], s=point_size * 1.35,
+               marker="^", color=CONSTRAINED_COLOR, alpha=0.7, lw=0)
     ax.set_xlim(-lim, lim)
     ax.set_ylim(-lim, lim)
     ax.set_aspect("equal")
@@ -1583,7 +1584,7 @@ def plot_overview(regenerate: bool = False, point_size: float = 2.0):
 
         # (a) Star, flush left.
         _overview_star(axes(left, top_row, square, square), star, point_size)
-        caption("(a) Inequality constrained star", left + square / 2,
+        caption("(a)", left + square / 2,
                 top_row + square + 0.03)
 
         # (b) Obstacle avoidance, flush right with the phase plane below.
@@ -1594,7 +1595,7 @@ def plot_overview(regenerate: bool = False, point_size: float = 2.0):
              for i in range(2)],
             obstacles,
         )
-        caption("(b) Obstacle avoidance", x + pair_w / 2,
+        caption("(b)", x + pair_w / 2,
                 top_row + square + 0.03)
 
         # (c) Hopper: the robot, then its phase plane.
@@ -1605,7 +1606,7 @@ def plot_overview(regenerate: bool = False, point_size: float = 2.0):
             axes(phase_left, bottom_row, right - phase_left, phase_h),
             hopper, point_size,
         )
-        caption("(c) Hopper", (left + W - margin) / 2, caption_top)
+        caption("(c)", (left + W - margin) / 2, caption_top)
 
         out = FIG_DIR / "overview.png"
         fig.savefig(out, dpi=300)
