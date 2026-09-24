@@ -585,15 +585,15 @@ def plot_mnist_mini(
     panels = [
         (masked_ref, "Reference"),
         (_cached(data, "unconstrained"), "Unconstrained"),
-        (_cached(data, "ldf"), "LDF"),
-        (_cached(data, "pigdm"), "PiGDM"),
+        (_cached(data, "ldf"), "LDF (ours)"),
+        (_cached(data, "pigdm"), "ΠGDM"),
         (_cached(data, "pcfm"), "PCFM"),
     ]
 
     fig, axes = plt.subplots(1, len(panels), figsize=(2.0 * len(panels), 2.3))
     for ax, (img, title) in zip(axes, panels):
         ax.imshow(img.squeeze(-1), cmap="gray", vmin=0, vmax=1)
-        ax.set_title(title, fontsize=12)
+        ax.set_title(title, fontsize=20)
         ax.axis("off")
     fig.tight_layout()
     out = FIG_DIR / "mnist_mini.png"

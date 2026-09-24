@@ -37,13 +37,14 @@ label = "Penalty only"
 gains = { num_projection_iters = 0 }
 
 # ---------------------------------------------------------------------------
-# The 2-D and MNIST rows, at two denoising resolutions.
+# The 2-D and MNIST rows, at dt = 0.01.
 # ---------------------------------------------------------------------------
 
 [[block]]
 problems = ["star", "mnist"]
+problem_label = { star = "Star (eq.)" }
 methods = ["pigdm", "pcfm", "penalty", "ldf", "ldf_projected"]
-steps = [10, 100]
+steps = [100]
 
 # Per-scenario penalty weights for the dual flow and its ablation. These were
 # shell variables inside make_benchmark_table.sh, invisible to the figures.
@@ -53,68 +54,53 @@ steps = [10, 100]
 [[block.gains]]
 method = ["ldf", "penalty"]
 problem = "star"
-steps = 10
-penalty_weight = 3.0
-
-[[block.gains]]
-method = ["ldf", "penalty"]
-problem = "star"
-steps = 100
 penalty_weight = 5.0
 
 [[block.gains]]
 method = ["ldf", "penalty"]
 problem = "mnist"
-steps = 10
-penalty_weight = 10.0
-
-[[block.gains]]
-method = ["ldf", "penalty"]
-problem = "mnist"
-steps = 100
 penalty_weight = 20.0
 
 # ---------------------------------------------------------------------------
-# The star again, at the same two resolutions, but with the right-half-plane
+# The star again, at the same resolution, but with the right-half-plane
 # inequality in place of the unit-norm equality. This is the smallest example
 # in the table where the CBF filter applies, so it is where the cost of the
 # safety-filter QP can be read against the dual flow without the obstacle
-# scene's hundreds of barrier rows in the way. PCFM and PiGDM are dropped
-# from the block automatically, being equality-only.
+# scene's hundreds of barrier rows in the way. The penalty-only ablation runs
+# here too, through the same closed-form slack flow as LDF with the
+# multipliers frozen at zero. PCFM and PiGDM are dropped from the block
+# automatically, being equality-only.
 # ---------------------------------------------------------------------------
 
 [[block]]
 problems = ["star"]
-problem_label = "Star (inequality)"
-methods = ["cbf", "ldf", "ldf_projected"]
-steps = [10, 100]
+problem_label = "Star (ineq.)"
+methods = ["cbf", "penalty", "ldf", "ldf_projected"]
+steps = [100]
 
 [block.problem_options.star]
 constraint = "right_half"
 
-# The same weights the equality rows use at each resolution, so the two star
-# blocks differ in the constraint and nothing else.
+# The same weight the equality rows use, so the two star blocks differ in the
+# constraint and nothing else. The ablation shares it, as it does on the
+# equality rows, so it isolates the dual dynamics.
 [[block.gains]]
-method = "ldf"
-steps = 10
-penalty_weight = 3.0
-
-[[block.gains]]
-method = "ldf"
-steps = 100
+method = ["ldf", "penalty"]
 penalty_weight = 5.0
 
 # ---------------------------------------------------------------------------
 # Obstacle avoidance, at dt = 0.002. Two scenes, sparse and crowded, so the
 # table shows what happens as the constraints pile up. These are inequality
 # constraints, so PCFM and PiGDM are dropped from the block automatically and
-# the CBF filter, which handles nothing else, joins it.
+# the CBF filter, which handles nothing else, joins it. The penalty-only
+# ablation runs here and on the locomotion rows too, at the penalty weight
+# the problem registry gives LDF, so it isolates the dual dynamics.
 # ---------------------------------------------------------------------------
 
 [[block]]
 problems = ["obstacles"]
-problem_label = "Obstacle avoidance (2 obstacles)"
-methods = ["cbf", "ldf", "ldf_projected"]
+problem_label = "Obstacles (2)"
+methods = ["cbf", "penalty", "ldf", "ldf_projected"]
 steps = [500]
 
 [block.problem_options.obstacles]
@@ -131,8 +117,8 @@ qp = "elastic"
 
 [[block]]
 problems = ["obstacles"]
-problem_label = "Obstacle avoidance (6 obstacles)"
-methods = ["cbf", "ldf", "ldf_projected"]
+problem_label = "Obstacles (6)"
+methods = ["cbf", "penalty", "ldf", "ldf_projected"]
 steps = [500]
 
 [block.problem_options.obstacles]
@@ -153,7 +139,8 @@ qp = "elastic"
 
 [[block]]
 problems = ["walker2d", "hopper"]
-methods = ["cbf", "ldf", "ldf_projected"]
+problem_label = { walker2d = "Walker2D", hopper = "Hopper" }
+methods = ["cbf", "penalty", "ldf", "ldf_projected"]
 steps = [100]
 
 # Pinned rather than inherited, to say in the config what the rows ran with.

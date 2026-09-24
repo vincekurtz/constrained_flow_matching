@@ -17,10 +17,10 @@ def _rows(cases, problem):
     return [c for c in cases if c.problem == problem]
 
 
-def _ldf_weights(cases):
-    """The penalty weight each LDF case runs at, keyed by step count."""
+def _ldf_weights(cases, method="ldf"):
+    """The penalty weight each LDF-family case runs at, keyed by step count."""
     return {(c.steps, c.gains["penalty_weight"])
-            for c in cases if c.method == "ldf"}
+            for c in cases if c.method == method}
 
 
 def test_flat_config_still_expands():
@@ -119,7 +119,7 @@ def test_a_block_only_runs_methods_the_constraint_admits():
     assert [c.method for c in cases] == ["cbf", "ldf"]
 
 
-def test_renaming_a_problem_needs_a_block_of_one():
+def test_renaming_a_problem_by_string_needs_a_block_of_one():
     with pytest.raises(ValueError, match="only one problem"):
         sweep.build_cases({
             "block": [{
@@ -129,34 +129,58 @@ def test_renaming_a_problem_needs_a_block_of_one():
         })
 
 
+def test_a_table_problem_label_renames_each_problem():
+    cases = sweep.build_cases({
+        "block": [{
+            "problems": ["star", "mnist"], "methods": ["ldf"],
+            "steps": [100], "problem_label": {"star": "Star (eq.)"},
+        }],
+    })
+    labels = {c.problem: c.problem_label for c in cases}
+    # A problem the table leaves out keeps its registered label.
+    assert labels == {"star": "Star (eq.)", "mnist": "MNIST"}
+
+
 def test_the_shipped_table1_config_expands():
     """The config the paper's table is built from stays loadable."""
     cases = sweep.build_cases(
         sweep.load_config("experiments/table1.toml")
     )
     rows = {(c.problem_label, c.row_label) for c in cases}
-    assert ("Star", "LDF (no projection)") in rows
-    assert ("Star", "LDF + projection") in rows
+    assert ("Star (eq.)", "LDF (no projection)") in rows
+    assert ("Star (eq.)", "LDF + projection") in rows
     assert ("MNIST", "Penalty only") in rows
-    assert ("Obstacle avoidance (2 obstacles)", "LDF + projection") in rows
-    assert ("Obstacle avoidance (6 obstacles)",
-            "CBF safety filter (SafeFlow)") in rows
-    assert ("Walker2D (medium-expert)",
-            "CBF safety filter (SafeFlow)") in rows
-    assert ("Hopper (medium-expert)", "LDF + projection") in rows
-    assert ("Star (inequality)", "CBF safety filter (SafeFlow)") in rows
-    # The star appears under both of its constraints, at the same two
-    # resolutions and the same penalty weights, so the two blocks differ in
+    assert ("Obstacles (2)", "LDF + projection") in rows
+    assert ("Obstacles (6)", "CBF safety filter (SafeFlow)") in rows
+    assert ("Walker2D", "CBF safety filter (SafeFlow)") in rows
+    assert ("Hopper", "LDF + projection") in rows
+    assert ("Star (ineq.)", "CBF safety filter (SafeFlow)") in rows
+    # Every scenario runs at one resolution, since the table has no Steps
+    # column to tell two apart.
+    assert len({(c.problem_label, c.name) for c in cases}) == len(cases)
+    # The star appears under both of its constraints, at the same
+    # resolution and the same penalty weight, so the two blocks differ in
     # the constraint and nothing else.
     star = _rows(cases, "star")
     equality = [c for c in star if not c.problem_options]
     inequality = [c for c in star if c.problem_options]
     assert all(c.problem_options == {"constraint": "right_half"}
                for c in inequality)
-    assert {c.steps for c in inequality} == {10, 100}
+    assert {c.steps for c in star} == {100}
     assert _ldf_weights(inequality) == _ldf_weights(equality)
+    # The penalty-only ablation runs on the inequality at LDF's weights.
+    assert ("Star (ineq.)", "Penalty only") in rows
+    assert (_ldf_weights(inequality, "penalty")
+            == _ldf_weights(inequality))
     # PCFM and PiGDM are equality-only and drop out of the inequality block.
-    assert {c.method for c in inequality} == {"cbf", "ldf"}
+    assert {c.method for c in inequality} == {"cbf", "penalty", "ldf"}
+    # The penalty-only ablation runs on every inequality problem, at the
+    # penalty weight LDF runs at there.
+    for problem in ("obstacles", "walker2d", "hopper"):
+        weights = {c.method: c.gains["penalty_weight"]
+                   for c in _rows(cases, problem)
+                   if c.method in ("ldf", "penalty")}
+        assert weights["penalty"] == weights["ldf"]
     # Every obstacle case runs at dt = 0.002 and every CBF one relaxes the QP.
     obstacles = _rows(cases, "obstacles")
     assert {c.steps for c in obstacles} == {500}
@@ -220,3 +244,51 @@ def test_baseline_ignores_a_scene_it_never_ran(tmp_path):
     path = _baseline(tmp_path, params={"num_obstacles": 2, "scene_seed": 0})
     record = _record(problem_options={"num_obstacles": 6, "scene_seed": 0})
     assert sweep.compare_to_baseline([record], path) == []
+
+
+def _table_record(variant, time_ms, violation, problem_options=None,
+                  num_nan=0, label="Star", steps=100):
+    return {
+        "problem": "star", "problem_label": label,
+        "problem_options": problem_options or {},
+        "method": variant.removesuffix("_projected"), "variant": variant,
+        "method_label": variant, "steps": steps,
+        "mean_time_ms": time_ms, "mean_violation": violation,
+        "num_nan": num_nan,
+    }
+
+
+def test_latex_table_pivots_methods_into_column_pairs():
+    """One row per scenario, equality above inequality, bolded by rule."""
+    ineq = {"constraint": "right_half"}
+    records = [
+        _table_record("cbf", 318.0, 0.0, ineq, num_nan=1,
+                      label="Star (ineq.)"),
+        _table_record("ldf", 7.7, 2.6e-3),
+        _table_record("pcfm", 29.6, 4.5e-8),
+        _table_record("ldf_projected", 7.9, 0.0, ineq,
+                      label="Star (ineq.)"),
+    ]
+    lines = sweep.render_latex_table(records).splitlines()
+    rows = [l for l in lines if l.startswith("Star")]
+    assert rows == [
+        r"Star & --- & --- & --- & --- & 29.6 & \scib{4.5}{-8} & --- & --- "
+        r"& \textbf{7.7} & \sci{2.6}{-3} & --- & --- \\",
+        r"Star (ineq.) & --- & --- & 318.0 & \textbf{0}~$\dagger$ "
+        r"& --- & --- & --- & --- & --- & --- & \textbf{7.9} & \textbf{0} \\",
+    ]
+    # The two halves are split by a rule.
+    assert lines.index(rows[1]) == lines.index(rows[0]) + 2
+
+
+def test_latex_table_refuses_a_scenario_at_two_step_counts():
+    records = [_table_record("ldf", 1.0, 1e-2, steps=10),
+               _table_record("ldf", 8.0, 1e-3, steps=100)]
+    with pytest.raises(ValueError, match="more than one step count"):
+        sweep.render_latex_table(records)
+
+
+def test_latex_table_refuses_two_results_for_one_cell():
+    records = [_table_record("ldf", 1.0, 1e-2), _table_record("ldf", 2.0, 1e-2)]
+    with pytest.raises(ValueError, match="stale"):
+        sweep.render_latex_table(records)

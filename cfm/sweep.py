@@ -34,7 +34,7 @@ import jax.numpy as jnp
 
 import problems
 from cfm import methods
-from cfm.core import checkpoint
+from cfm.core import checkpoint, constraints
 
 RESULTS_DIR = Path("results")
 
@@ -172,12 +172,17 @@ def build_cases(config: Dict[str, Any]) -> List[Case]:
     for block in _blocks(config):
         num_samples = block.get("num_samples", 20)
         overrides = block.get("gains", [])
-        problem_label = block.get("problem_label")
-        if problem_label and len(block["problems"]) > 1:
-            raise ValueError(
-                "problem_label renames one problem's rows, so a block that "
-                f"sets it may list only one problem; got {block['problems']}"
-            )
+        # A string renames the block's one problem; a table renames each
+        # problem it names, for a block that lists several.
+        problem_label = block.get("problem_label", {})
+        if isinstance(problem_label, str):
+            if len(block["problems"]) > 1:
+                raise ValueError(
+                    "a string problem_label renames one problem's rows, so a "
+                    "block that sets it may list only one problem; got "
+                    f"{block['problems']} (use a table to rename each)"
+                )
+            problem_label = {block["problems"][0]: problem_label}
 
         for problem_name in block["problems"]:
             problem = problems.get(problem_name)
@@ -217,7 +222,8 @@ def build_cases(config: Dict[str, Any]) -> List[Case]:
                         method=method_name,
                         variant=row_name,
                         row_label=variant.label if variant else method.label,
-                        problem_label=problem_label or problem.label,
+                        problem_label=problem_label.get(
+                            problem_name, problem.label),
                         steps=steps,
                         num_samples=num_samples,
                         gains=gains,
@@ -366,13 +372,7 @@ def render_table(records, fmt: str = "markdown") -> str:
         ])
 
     if fmt == "latex":
-        lines = [
-            r"\begin{tabular}{lllrr}", r"\toprule",
-            " & ".join(header) + r" \\", r"\midrule",
-        ]
-        lines += [" & ".join(row) + r" \\" for row in body]
-        lines += [r"\bottomrule", r"\end{tabular}"]
-        return "\n".join(lines)
+        return render_latex_table(records)
 
     widths = [
         max(len(header[i]), *(len(row[i]) for row in body))
@@ -387,6 +387,130 @@ def render_table(records, fmt: str = "markdown") -> str:
     rule = "|" + "|".join("-" * (w + 2) for w in widths) + "|"
     lines = [fmt_row(header), rule]
     lines += [fmt_row(row) for row in body]
+    return "\n".join(lines)
+
+
+# The LaTeX table's column groups, in order: a row name from the sweep (a
+# variant, or a method with none) and the header it sits under. A row name
+# missing here still gets a column, after these, headed by its method label.
+LATEX_COLUMNS = [
+    ("penalty", "Penalty only"),
+    ("cbf", r"CBF~\cite{safeflow2025}"),
+    ("pcfm", r"PCFM~\cite{utkarsh2025pcfm}"),
+    ("pigdm", r"$\Pi$GDM~\cite{pokle2024training}"),
+    ("ldf", "LDF (no proj.)"),
+    ("ldf_projected", "LDF + proj."),
+]
+
+# Bold times are within this factor of the fastest in their row; bold
+# violations are below the threshold, near single-precision round-off.
+LATEX_TIME_FACTOR = 1.2
+LATEX_VIOLATION_THRESHOLD = 1e-6
+
+
+def _latex_violation(value: float, num_nan: int) -> str:
+    r"""A violation as ``\sci{m}{e}``, bold (``\scib``) when it is negligible.
+
+    The ``\sci`` and ``\scib`` macros are the paper's, not LaTeX's.
+    """
+    if value == 0:
+        cell = r"\textbf{0}"
+    else:
+        mantissa, exponent = f"{value:.1e}".split("e")
+        macro = r"\scib" if value < LATEX_VIOLATION_THRESHOLD else r"\sci"
+        cell = f"{macro}{{{mantissa}}}{{{int(exponent)}}}"
+    # The mean is over the samples that did not NaN; the dagger says so.
+    return cell + r"~$\dagger$" if num_nan else cell
+
+
+def render_latex_table(records) -> str:
+    """Render benchmark records as the paper's LaTeX tabular.
+
+    One row per problem scenario, and a Time/Viol. column pair per method.
+    Equality-constrained rows come first, separated from the inequality ones
+    by a rule, and a method that does not apply to a row shows dashes. There
+    is no Steps column, so each scenario must be recorded at one resolution.
+    """
+    kinds = {}
+
+    def kind(r):
+        name = (r["problem"], json.dumps(r.get("problem_options") or {},
+                                         sort_keys=True))
+        if name not in kinds:
+            kinds[name] = problems.get(r["problem"]).make_constraint(
+                **(r.get("problem_options") or {})
+            ).kind
+        return kinds[name]
+
+    cells: Dict[Any, Dict[str, Dict[str, Any]]] = {}
+    for r in records:
+        label = r.get("problem_label") or problems.get(r["problem"]).label
+        row = (kind(r) != constraints.EQUALITY, r["problem"], label,
+               r["steps"])
+        column = r.get("variant") or r["method"]
+        if column in cells.setdefault(row, {}):
+            raise ValueError(
+                f"two results for {column!r} on {label} at {r['steps']} "
+                "steps; remove the stale one from the results directory"
+            )
+        cells[row][column] = r
+
+    columns = list(LATEX_COLUMNS)
+    known = {name for name, _ in columns}
+    for per_row in cells.values():
+        for name, r in per_row.items():
+            if name not in known:
+                columns.append((name, r["method_label"]))
+                known.add(name)
+
+    order = list(problems.all_problems())
+    rows = sorted(cells, key=lambda k: (
+        k[0], order.index(k[1]) if k[1] in order else 99, k[2], k[3],
+    ))
+    scenarios = [k[:3] for k in rows]
+    for k in rows:
+        if scenarios.count(k[:3]) > 1:
+            raise ValueError(
+                f"{k[2]} was run at more than one step count; the table has "
+                "no Steps column, so keep one resolution per scenario"
+            )
+
+    groups = "\n".join(
+        f"& \\multicolumn{{2}}{{c}}{{{header}}}" for _, header in columns
+    )
+    rules = "".join(
+        f"\\cmidrule(lr){{{2 + 2 * i}-{3 + 2 * i}}}"
+        for i in range(len(columns))
+    )
+    lines = [
+        r"\begin{tabular}{l" + "cc" * len(columns) + "}",
+        r"\toprule",
+        groups + r" \\",
+        rules,
+        " & ".join(["Problem"] + ["Time", "Viol."] * len(columns)) + r" \\",
+        r"\midrule",
+    ]
+
+    for i, row in enumerate(rows):
+        if i and row[0] != rows[i - 1][0]:
+            lines.append(r"\midrule")
+        per_row = cells[row]
+        fastest = min(r["mean_time_ms"] for r in per_row.values())
+        out = [row[2]]
+        for name, _ in columns:
+            r = per_row.get(name)
+            if r is None:
+                out += ["---", "---"]
+                continue
+            time_ms = f"{r['mean_time_ms']:.1f}"
+            if r["mean_time_ms"] <= LATEX_TIME_FACTOR * fastest:
+                time_ms = rf"\textbf{{{time_ms}}}"
+            out += [time_ms,
+                    _latex_violation(r["mean_violation"],
+                                     r.get("num_nan", 0))]
+        lines.append(" & ".join(out) + r" \\")
+
+    lines += [r"\bottomrule", r"\end{tabular}"]
     return "\n".join(lines)
 
 
