@@ -1494,7 +1494,9 @@ def _overview_obstacles(axes, obstacles):
         ax.set_xlim(-lim, lim)
         ax.set_ylim(-lim, lim)
         ax.set_aspect("equal")
-        ax.set_title(title)
+        # Inside the panel, along the bottom, which the paths leave clear.
+        ax.text(0.5, 0.04, title, transform=ax.transAxes, ha="center",
+                va="bottom")
         _bare(ax)
 
 
@@ -1552,7 +1554,7 @@ def plot_overview(regenerate: bool = False, point_size: float = 2.0):
 
     # Everything in inches, measured from the top-left corner.
     W = ICLR_TEXT_WIDTH
-    margin, legend_h, title_h, caption_h, gap = 0.03, 0.22, 0.19, 0.22, 0.12
+    margin, legend_h, caption_h, gap = 0.03, 0.22, 0.22, 0.12
     xlabel_h = 0.33
     # In from the edge by enough that the star's caption, which is wider
     # than the panel, stays on the page.
@@ -1564,7 +1566,7 @@ def plot_overview(regenerate: bool = False, point_size: float = 2.0):
     pose_w = phase_h * pose_crop * POSE_PIXELS[0] / POSE_PIXELS[1]
     ylabel_w = 0.36
 
-    top_row = margin + legend_h + title_h  # top of the star and obstacles
+    top_row = margin + legend_h + 0.05  # top of the star and obstacles
     bottom_row = top_row + square + caption_h + gap  # top of the hopper
     caption_top = bottom_row + phase_h + xlabel_h + 0.02
     H = caption_top + caption_h + margin
