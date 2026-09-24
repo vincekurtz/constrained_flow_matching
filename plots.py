@@ -1367,7 +1367,7 @@ def plot_locomotion_phase(
 
 
 # ============================================================================
-# Overview: the four problem classes in one full-width figure
+# Overview: the star, obstacles and hopper in one full-width figure
 # ============================================================================
 
 # ICLR's \textwidth, in inches. The figure is drawn at the size it is printed
@@ -1423,54 +1423,24 @@ def _bare(ax):
         spine.set_color("0.4")
 
 
-def _overview_sources(regenerate, mnist=True):
-    """The cached data behind the overview figures, keyed by source."""
-    sources = {
-        "star": ("inequality_star", plot_inequality_star),
-        "obstacles": ("obstacle_avoidance", plot_obstacle_avoidance),
-        "hopper": (
-            "locomotion_hopper", partial(plot_locomotion_phase, "hopper")
-        ),
-    }
-    if mnist:
-        sources["mnist"] = ("mnist_mini", plot_mnist_mini)
-    return {
-        key: _overview_data(name, plot_fn, regenerate)
-        for key, (name, plot_fn) in sources.items()
-    }
+def _overview_legend(fig, center_y):
+    """One legend for all three panels, which share the colour roles.
 
-
-def _overview_mnist_panels(mnist):
-    """The reference, then one sample per method, all from the same noise."""
-    ref, mask = mnist["reference"], mnist["mask"]
-    return [
-        (np.where(mask, ref, 0.5 * ref), "Reference"),
-        (_cached(mnist, "unconstrained"), "Unconstrained"),
-        (_cached(mnist, "ldf"), "LDF"),
-        (_cached(mnist, "pigdm"), "PiGDM"),
-        (_cached(mnist, "pcfm"), "PCFM"),
-    ]
-
-
-def _overview_legend(fig, center_y, center_x=0.5):
-    """One legend for the star, obstacle and hopper panels.
-
-    They share the colour roles, so one key serves all three. The centre is
-    in figure coordinates.
+    ``center_y`` is in figure coordinates.
     """
     from matplotlib.lines import Line2D
     from matplotlib.patches import Patch
 
     fig.legend(
         handles=[
-            Line2D([], [], color=UNCONSTRAINED_COLOR, marker="o", ms=3,
-                   lw=1.2, label="Unconstrained / training data"),
-            Line2D([], [], color=CONSTRAINED_COLOR, marker="^", ms=3,
+            Line2D([], [], color=UNCONSTRAINED_COLOR, marker="o", ms=6,
+                   lw=1.2, label="Unconstrained"),
+            Line2D([], [], color=CONSTRAINED_COLOR, marker="^", ms=6,
                    lw=1.2, label="Constrained (LDF)"),
             Patch(facecolor=CONSTRAINT_COLOR, alpha=0.3,
                   edgecolor=CONSTRAINT_COLOR, label="Constraint"),
         ],
-        loc="center", bbox_to_anchor=(center_x, center_y),
+        loc="center", bbox_to_anchor=(0.5, center_y),
         ncols=3, frameon=False, handlelength=1.8, columnspacing=1.5,
         borderaxespad=0.0,
     )
@@ -1490,11 +1460,10 @@ def _overview_star(ax, star, point_size):
     ax.set_xlim(-lim, lim)
     ax.set_ylim(-lim, lim)
     ax.set_aspect("equal")
-    ax.set_title("$x_1 \\geq 0$")
     _bare(ax)
 
 
-def _overview_obstacles(axes, obstacles, marker_scale=1.0):
+def _overview_obstacles(axes, obstacles):
     """Unconstrained and constrained paths, one panel each.
 
     The obstacles are drawn in both panels, so the unconstrained paths are
@@ -1519,8 +1488,8 @@ def _overview_obstacles(axes, obstacles, marker_scale=1.0):
         for p in paths:
             ax.plot(p[:, 0], p[:, 1], color=color, alpha=0.6, lw=0.6,
                     zorder=2)
-        ax.plot(*START, "o", color="k", ms=4 * marker_scale, zorder=3)
-        ax.plot(*GOAL, "*", color="k", ms=7 * marker_scale, zorder=3)
+        ax.plot(*START, "o", color="k", ms=4, zorder=3)
+        ax.plot(*GOAL, "*", color="k", ms=7, zorder=3)
         ax.set_xlim(-lim, lim)
         ax.set_ylim(-lim, lim)
         ax.set_aspect("equal")
@@ -1528,7 +1497,7 @@ def _overview_obstacles(axes, obstacles, marker_scale=1.0):
         _bare(ax)
 
 
-def _overview_pose(ax, hopper, crop=1.0, vz_length=0.11):
+def _overview_pose(ax, hopper, crop, vz_length):
     """The hopper render with ``z`` and ``v_z`` marked on it.
 
     ``crop`` keeps that fraction of the render's width, from the left: the
@@ -1562,199 +1531,32 @@ def _overview_phase(ax, hopper, point_size):
     ax.yaxis.set_major_locator(plt.MultipleLocator(2))
 
 
-class _InchLayout:
-    """Place axes and captions in inches from the figure's top-left corner."""
-
-    def __init__(self, fig):
-        self.fig = fig
-        self.W, self.H = fig.get_size_inches()
-
-    def axes(self, left, top, width, height):
-        W, H = self.W, self.H
-        return self.fig.add_axes(
-            (left / W, 1 - (top + height) / H, width / W, height / H)
-        )
-
-    def caption(self, text, center, top):
-        """Caption hanging from ``top``; multi-line text stays centred."""
-        self.fig.text(center / self.W, 1 - top / self.H, text, ha="center",
-                      va="top", ma="center", fontsize=OVERVIEW_CAPTION_SIZE,
-                      linespacing=1.1)
-
-    def y(self, top):
-        """A distance from the top, in figure coordinates."""
-        return 1 - top / self.H
-
-
 def plot_overview(regenerate: bool = False, point_size: float = 2.0):
-    """MNIST, the half-plane star, obstacles and the hopper in one figure.
-
-    Drawn from the caches of ``mnist_mini``, ``inequality_star``,
-    ``obstacle_avoidance`` and ``locomotion_hopper``; ``regenerate`` re-runs
-    those four. The layout is in inches at ICLR's text width, so the PNG is
-    meant to go in at ``width=\textwidth`` with no scaling.
-    """
-    _ensure_dirs()
-    data = _overview_sources(regenerate)
-
-    # Two rows: MNIST beside the star, then obstacles beside the hopper.
-    W = ICLR_TEXT_WIDTH
-    margin, title_h, caption_h, gap, legend_h = 0.03, 0.19, 0.22, 0.06, 0.22
-    image, spacing = 0.68, 0.08  # one MNIST digit, and the gap between two
-    star_size = 1.15
-    square = 1.30  # one obstacle panel, and the height of the phase plane
-    xlabel_h = 0.33
-    top_h = title_h + star_size
-    bottom_h = title_h + square + xlabel_h
-    H = margin + top_h + caption_h + gap + legend_h + bottom_h + caption_h
-
-    with plt.rc_context(OVERVIEW_RC):
-        fig = plt.figure(figsize=(W, H))
-        layout = _InchLayout(fig)
-        row_top = margin + title_h  # top of the first row's axes
-        row_bottom = margin + top_h  # where its captions start
-        caption_top = row_bottom + 0.03
-
-        # (a) MNIST inpainting, bottom-aligned with the star so the two
-        # captions share a line.
-        panels = _overview_mnist_panels(data["mnist"])
-        mnist_w = len(panels) * image + (len(panels) - 1) * spacing
-        for i, (img, title) in enumerate(panels):
-            ax = layout.axes(margin + i * (image + spacing),
-                             row_bottom - image, image, image)
-            ax.imshow(img.squeeze(-1), cmap="gray", vmin=0, vmax=1)
-            ax.set_title(title)
-            ax.axis("off")
-        layout.caption("(a) MNIST inpainting", margin + mnist_w / 2,
-                       caption_top)
-
-        # (b) Star. Its caption is wider than the panel, so the panel sits
-        # far enough in from the edge for the caption to stay centred.
-        star_center = W - margin - 1.8 / 2
-        ax = layout.axes(star_center - star_size / 2, row_top, star_size,
-                         star_size)
-        _overview_star(ax, data["star"], point_size)
-        layout.caption("(b) Inequality constrained star", star_center,
-                       caption_top)
-
-        y = row_bottom + caption_h + gap
-        _overview_legend(fig, layout.y(y + legend_h / 2))
-        row_top = y + legend_h + title_h
-        row_bottom = row_top + square + xlabel_h
-        caption_top = row_bottom + 0.03
-
-        # (c) Obstacle avoidance.
-        pair_gap = 0.06
-        _overview_obstacles(
-            [layout.axes(margin + i * (square + pair_gap), row_top, square,
-                         square) for i in range(2)],
-            data["obstacles"],
-        )
-        pair_w = 2 * square + pair_gap
-        layout.caption("(c) Obstacle avoidance", margin + pair_w / 2,
-                       caption_top)
-
-        # (d) Hopper: the phase plane, with the robot inset in its
-        # upper-left corner, which the hop cycle leaves empty.
-        phase_left = margin + pair_w + 0.75
-        phase_w = W - margin - 0.02 - phase_left
-        ax = layout.axes(phase_left, row_top, phase_w, square)
-        _overview_phase(ax, data["hopper"], point_size)
-        # Widen to the left so the inset covers no data.
-        lo, hi = ax.get_xlim()
-        ax.set_xlim(lo - 0.22 * (hi - lo), hi)
-        inset_h = 0.62
-        inset_w = inset_h * square * POSE_PIXELS[0] / (POSE_PIXELS[1] * phase_w)
-        _overview_pose(
-            ax.inset_axes((0.005, 1 - inset_h - 0.005, inset_w, inset_h)),
-            data["hopper"],
-        )
-        layout.caption("(d) Hopper", phase_left + phase_w / 2, caption_top)
-
-        out = FIG_DIR / "overview.png"
-        fig.savefig(out, dpi=300)
-        print(f"[overview] wrote {out}")
-        plt.close(fig)
-
-
-def plot_overview_row(regenerate: bool = False, point_size: float = 1.5):
-    """The star, obstacles and hopper side by side in one short row.
-
-    :func:`plot_overview` without MNIST, and with the hopper's robot beside
-    its phase plane rather than inset in it. Same caches, same ICLR text
-    width, so it too goes in at ``width=\textwidth``.
-    """
-    _ensure_dirs()
-    data = _overview_sources(regenerate, mnist=False)
-
-    # Left to right: star | two obstacle panels | robot, phase plane. All
-    # share one height; the phase plane takes what width is left.
-    W = ICLR_TEXT_WIDTH
-    margin, legend_h, title_h, xlabel_h = 0.03, 0.22, 0.19, 0.33
-    h = 0.86  # panel height, and the side of each square panel
-    group_gap, pair_gap = 0.14, 0.05
-    pose_crop = 0.8
-    pose_w = h * pose_crop * POSE_PIXELS[0] / POSE_PIXELS[1]
-    ylabel_w = 0.36  # the phase plane's tick labels and axis label
-    H = margin + legend_h + title_h + h + xlabel_h + 0.36 + margin
-
-    with plt.rc_context(OVERVIEW_RC):
-        fig = plt.figure(figsize=(W, H))
-        layout = _InchLayout(fig)
-        _overview_legend(fig, layout.y(margin + legend_h / 2))
-        top = margin + legend_h + title_h
-        # Captions share a line under the phase plane's axis label.
-        caption_top = top + h + xlabel_h + 0.02
-
-        # (a) Star. Its caption is wider than the panel, so it takes two
-        # lines rather than running under its neighbour's.
-        x = margin
-        _overview_star(layout.axes(x, top, h, h), data["star"], point_size)
-        layout.caption("(a) Inequality\nconstrained star", x + h / 2,
-                       caption_top)
-
-        # (b) Obstacle avoidance.
-        x += h + group_gap
-        _overview_obstacles(
-            [layout.axes(x + i * (h + pair_gap), top, h, h)
-             for i in range(2)],
-            data["obstacles"], marker_scale=0.8,
-        )
-        layout.caption("(b) Obstacle avoidance", x + h + pair_gap / 2,
-                       caption_top)
-
-        # (c) Hopper: the robot, then its phase plane.
-        x += 2 * h + pair_gap + group_gap
-        _overview_pose(layout.axes(x, top, pose_w, h), data["hopper"],
-                       crop=pose_crop)
-        phase_left = x + pose_w + ylabel_w
-        phase_w = W - margin - 0.02 - phase_left
-        _overview_phase(layout.axes(phase_left, top, phase_w, h),
-                        data["hopper"], point_size)
-        layout.caption("(c) Hopper", (x + W - margin) / 2, caption_top)
-
-        out = FIG_DIR / "overview_row.png"
-        fig.savefig(out, dpi=300)
-        print(f"[overview_row] wrote {out}")
-        plt.close(fig)
-
-
-def plot_overview_stacked(regenerate: bool = False, point_size: float = 2.0):
     """The star and obstacles on top, the hopper across the bottom.
 
-    The robot sits beside its phase plane, which takes the rest of the
-    width. Same caches and ICLR text width as :func:`plot_overview`, so it
-    goes in at ``width=\textwidth``.
+    Drawn from the caches of ``inequality_star``, ``obstacle_avoidance``
+    and ``locomotion_hopper``; ``regenerate`` re-runs those three. The
+    layout is in inches at ICLR's text width, so the PNG is meant to go in
+    at ``width=\textwidth`` with no scaling.
     """
     _ensure_dirs()
-    data = _overview_sources(regenerate, mnist=False)
+    star = _overview_data("inequality_star", plot_inequality_star, regenerate)
+    obstacles = _overview_data(
+        "obstacle_avoidance", plot_obstacle_avoidance, regenerate
+    )
+    hopper = _overview_data(
+        "locomotion_hopper", partial(plot_locomotion_phase, "hopper"),
+        regenerate,
+    )
 
+    # Everything in inches, measured from the top-left corner.
     W = ICLR_TEXT_WIDTH
     margin, legend_h, title_h, caption_h, gap = 0.03, 0.22, 0.19, 0.22, 0.12
     xlabel_h = 0.33
     # In from the edge by enough that the star's caption, which is wider
     # than the panel, stays on the page.
     left = 0.08
+    right = W - margin - 0.02
     square, pair_gap = 1.60, 0.05
     phase_h = 1.25
     pose_crop = 0.8
@@ -1766,40 +1568,48 @@ def plot_overview_stacked(regenerate: bool = False, point_size: float = 2.0):
     caption_top = bottom_row + phase_h + xlabel_h + 0.02
     H = caption_top + caption_h + margin
 
+    def axes(x, y, width, height):
+        return fig.add_axes(
+            (x / W, 1 - (y + height) / H, width / W, height / H)
+        )
+
+    def caption(text, center, y):
+        fig.text(center / W, 1 - y / H, text, ha="center", va="top",
+                 fontsize=OVERVIEW_CAPTION_SIZE)
+
     with plt.rc_context(OVERVIEW_RC):
         fig = plt.figure(figsize=(W, H))
-        layout = _InchLayout(fig)
-        _overview_legend(fig, layout.y(margin + legend_h / 2))
+        _overview_legend(fig, 1 - (margin + legend_h / 2) / H)
 
         # (a) Star, flush left.
-        _overview_star(layout.axes(left, top_row, square, square),
-                       data["star"], point_size)
-        layout.caption("(a) Inequality constrained star", left + square / 2,
-                       top_row + square + 0.03)
+        _overview_star(axes(left, top_row, square, square), star, point_size)
+        caption("(a) Inequality constrained star", left + square / 2,
+                top_row + square + 0.03)
 
         # (b) Obstacle avoidance, flush right with the phase plane below.
         pair_w = 2 * square + pair_gap
-        x = W - margin - 0.02 - pair_w
+        x = right - pair_w
         _overview_obstacles(
-            [layout.axes(x + i * (square + pair_gap), top_row, square,
-                         square) for i in range(2)],
-            data["obstacles"],
+            [axes(x + i * (square + pair_gap), top_row, square, square)
+             for i in range(2)],
+            obstacles,
         )
-        layout.caption("(b) Obstacle avoidance", x + pair_w / 2,
-                       top_row + square + 0.03)
+        caption("(b) Obstacle avoidance", x + pair_w / 2,
+                top_row + square + 0.03)
 
         # (c) Hopper: the robot, then its phase plane.
-        _overview_pose(layout.axes(left, bottom_row, pose_w, phase_h),
-                       data["hopper"], crop=pose_crop, vz_length=0.18)
+        _overview_pose(axes(left, bottom_row, pose_w, phase_h), hopper,
+                       crop=pose_crop, vz_length=0.18)
         phase_left = left + pose_w + ylabel_w
-        phase_w = W - margin - 0.02 - phase_left
-        _overview_phase(layout.axes(phase_left, bottom_row, phase_w, phase_h),
-                        data["hopper"], point_size)
-        layout.caption("(c) Hopper", (left + W - margin) / 2, caption_top)
+        _overview_phase(
+            axes(phase_left, bottom_row, right - phase_left, phase_h),
+            hopper, point_size,
+        )
+        caption("(c) Hopper", (left + W - margin) / 2, caption_top)
 
-        out = FIG_DIR / "overview_stacked.png"
+        out = FIG_DIR / "overview.png"
         fig.savefig(out, dpi=300)
-        print(f"[overview_stacked] wrote {out}")
+        print(f"[overview] wrote {out}")
         plt.close(fig)
 
 
@@ -1821,13 +1631,11 @@ PLOTS = {
     "locomotion_walker2d": partial(plot_locomotion_phase, "walker2d"),
     "locomotion_hopper": partial(plot_locomotion_phase, "hopper"),
     "overview": plot_overview,
-    "overview_row": plot_overview_row,
-    "overview_stacked": plot_overview_stacked,
 }
 
 # Figures drawn only from other figures' caches. With ``--plot all`` those
 # caches were just refreshed, so regenerating would redo the same work.
-COMPOSITES = {"overview", "overview_row", "overview_stacked"}
+COMPOSITES = {"overview"}
 
 
 def main():
