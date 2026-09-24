@@ -390,6 +390,22 @@ def render_table(records, fmt: str = "markdown") -> str:
     return "\n".join(lines)
 
 
+def _ran_the_baseline_scenario(record, want) -> bool:
+    """Did this case run the problem configuration the baseline recorded?
+
+    The baseline keys on problem and method alone, from before a problem
+    could appear under more than one constraint or scene. A case whose
+    problem options the baseline never ran -- the star under its inequality,
+    the crowded obstacle scene -- is not a comparison, so it is skipped
+    rather than measured against the wrong reference.
+    """
+    params = want.get("params", {})
+    return all(
+        params.get(k) == v
+        for k, v in (record.get("problem_options") or {}).items()
+    )
+
+
 def compare_to_baseline(
     records,
     baseline_path: Optional[Path] = None,
@@ -430,6 +446,8 @@ def compare_to_baseline(
         if key not in baseline:
             continue
         want = baseline[key]
+        if not _ran_the_baseline_scenario(r, want):
+            continue
 
         worse_violation = (
             not jnp.isnan(want["mean_violation"])

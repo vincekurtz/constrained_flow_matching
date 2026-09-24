@@ -75,6 +75,36 @@ steps = 100
 penalty_weight = 20.0
 
 # ---------------------------------------------------------------------------
+# The star again, at the same two resolutions, but with the right-half-plane
+# inequality in place of the unit-norm equality. This is the smallest example
+# in the table where the CBF filter applies, so it is where the cost of the
+# safety-filter QP can be read against the dual flow without the obstacle
+# scene's hundreds of barrier rows in the way. PCFM and PiGDM are dropped
+# from the block automatically, being equality-only.
+# ---------------------------------------------------------------------------
+
+[[block]]
+problems = ["star"]
+problem_label = "Star (inequality)"
+methods = ["cbf", "ldf", "ldf_projected"]
+steps = [10, 100]
+
+[block.problem_options.star]
+constraint = "right_half"
+
+# The same weights the equality rows use at each resolution, so the two star
+# blocks differ in the constraint and nothing else.
+[[block.gains]]
+method = "ldf"
+steps = 10
+penalty_weight = 3.0
+
+[[block.gains]]
+method = "ldf"
+steps = 100
+penalty_weight = 5.0
+
+# ---------------------------------------------------------------------------
 # Obstacle avoidance, at dt = 0.002. Two scenes, sparse and crowded, so the
 # table shows what happens as the constraints pile up. These are inequality
 # constraints, so PCFM and PiGDM are dropped from the block automatically and

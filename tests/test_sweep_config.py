@@ -6,6 +6,8 @@ scene. Both are config-level ideas that never reach a generator, so they are
 checked here rather than by running anything.
 """
 
+import json
+
 import pytest
 
 from cfm import sweep
@@ -13,6 +15,12 @@ from cfm import sweep
 
 def _rows(cases, problem):
     return [c for c in cases if c.problem == problem]
+
+
+def _ldf_weights(cases):
+    """The penalty weight each LDF case runs at, keyed by step count."""
+    return {(c.steps, c.gains["penalty_weight"])
+            for c in cases if c.method == "ldf"}
 
 
 def test_flat_config_still_expands():
@@ -136,6 +144,19 @@ def test_the_shipped_table1_config_expands():
     assert ("Walker2D (medium-expert)",
             "CBF safety filter (SafeFlow)") in rows
     assert ("Hopper (medium-expert)", "LDF + projection") in rows
+    assert ("Star (inequality)", "CBF safety filter (SafeFlow)") in rows
+    # The star appears under both of its constraints, at the same two
+    # resolutions and the same penalty weights, so the two blocks differ in
+    # the constraint and nothing else.
+    star = _rows(cases, "star")
+    equality = [c for c in star if not c.problem_options]
+    inequality = [c for c in star if c.problem_options]
+    assert all(c.problem_options == {"constraint": "right_half"}
+               for c in inequality)
+    assert {c.steps for c in inequality} == {10, 100}
+    assert _ldf_weights(inequality) == _ldf_weights(equality)
+    # PCFM and PiGDM are equality-only and drop out of the inequality block.
+    assert {c.method for c in inequality} == {"cbf", "ldf"}
     # Every obstacle case runs at dt = 0.002 and every CBF one relaxes the QP.
     obstacles = _rows(cases, "obstacles")
     assert {c.steps for c in obstacles} == {500}
@@ -147,3 +168,55 @@ def test_the_shipped_table1_config_expands():
     assert {c.steps for c in locomotion} == {100}
     assert all(c.gains["qp"] == "elastic"
                for c in locomotion if c.method == "cbf")
+
+
+def _baseline(tmp_path, params, mean_violation=1e-3, mean_time_ms=10.0):
+    """A one-entry baseline file for the star, as the recorder wrote them.
+
+    Keyed ``star/ours``, since the baseline predates the ours -> ldf rename
+    and ``compare_to_baseline`` maps the name back before looking it up.
+    """
+    path = tmp_path / "baseline.json"
+    path.write_text(json.dumps({"results": {"star/ours": {
+        "mean_violation": mean_violation,
+        "mean_time_ms": mean_time_ms,
+        "params": params,
+    }}}))
+    return path
+
+
+def _record(**overrides):
+    record = {
+        "problem": "star", "method": "ldf", "steps": 100,
+        "mean_violation": 1.0, "mean_time_ms": 10.0,
+        "config": {}, "problem_options": {},
+    }
+    record.update(overrides)
+    return record
+
+
+def test_baseline_ignores_a_scenario_it_never_ran(tmp_path):
+    """The star under its inequality is not the star the baseline recorded.
+
+    The baseline keys on problem and method alone, so without this the
+    inequality rows would be measured against the unit-norm equality's
+    violation and read as a regression.
+    """
+    path = _baseline(tmp_path, params={"dt": 0.01})
+    record = _record(problem_options={"constraint": "right_half"})
+    assert sweep.compare_to_baseline([record], path) == []
+
+
+def test_baseline_still_compares_the_scenario_it_did_run(tmp_path):
+    path = _baseline(tmp_path, params={"num_obstacles": 2, "scene_seed": 0})
+    record = _record(problem_options={"num_obstacles": 2, "scene_seed": 0})
+    assert sweep.compare_to_baseline([record], path) == [
+        "star/ours: violation 1.000e+00 > baseline 1.000e-03"
+    ]
+
+
+def test_baseline_ignores_a_scene_it_never_ran(tmp_path):
+    """The crowded obstacle scene is not the one the baseline recorded."""
+    path = _baseline(tmp_path, params={"num_obstacles": 2, "scene_seed": 0})
+    record = _record(problem_options={"num_obstacles": 6, "scene_seed": 0})
+    assert sweep.compare_to_baseline([record], path) == []

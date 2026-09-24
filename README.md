@@ -303,7 +303,11 @@ problems x methods x steps grid. One table needs more than one grid: the
 obstacle rows run their own scenes, at a much finer step size than the 2-D
 and MNIST rows, and a block carries its own `problem_options`,
 `num_samples` and `problem_label` so the same problem can appear twice under
-two scenes. A config with no `[[block]]` is itself the single block.
+two scenes -- or, as the star does, under its equality and its inequality
+constraint. A method that cannot handle a block's constraint drops out of
+that block rather than erroring, which is why PCFM and PiGDM appear on the
+star's equality rows and not its inequality ones. A config with no
+`[[block]]` is itself the single block.
 
 A row of the table is named by a `[[variants]]` entry: a registered method
 with the gains that define the row pinned.
