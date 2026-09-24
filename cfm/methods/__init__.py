@@ -83,7 +83,7 @@ _LDF_DEFAULTS = {
 
 LDF = Method(
     name="ldf",
-    label="Lagrangian Dual Flows (LDF)",
+    label="LDF (ours)",
     generate=ldf.generate,
     supports=BOTH,
     defaults=dict(_LDF_DEFAULTS),
@@ -121,7 +121,7 @@ PCFM = Method(
 
 PIGDM = Method(
     name="pigdm",
-    label="Pseudoinverse guidance (PiGDM)",
+    label="ΠGDM",
     generate=pigdm.generate,
     supports=frozenset({EQUALITY}),
     defaults={"guidance_scale": 1.0, "eps_reg": 1e-4},
