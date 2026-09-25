@@ -1,12 +1,6 @@
-"""Regenerate the golden arrays in ``tests/goldens/``.
-
-Run only when a change to the algorithms is *intended*:
+"""Regenerate ``tests/goldens/``. Run only for intended algorithm changes.
 
     uv run python -m tests.make_goldens
-
-Re-running this after an unintended behavior change would paper over exactly
-what the goldens exist to catch, so the diff on tests/goldens/*.npy should be
-scrutinised in review like any other change.
 """
 
 from pathlib import Path

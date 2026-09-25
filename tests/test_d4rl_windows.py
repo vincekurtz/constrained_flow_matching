@@ -1,14 +1,4 @@
-"""Cutting D4RL demonstrations into training windows.
-
-The dataset holds two million transitions as one flat array and indexes
-windows into it, so the correctness of every sample rests on two things: that
-a window never straddles an episode reset, and that actions come before
-observations in a transition. A straddling window would teach the model to
-teleport; a swapped layout would move the constrained column.
-
-Everything here runs on synthetic in-memory arrays through ``from_arrays``,
-so no test reads the 440 MB hdf5 files or needs the network.
-"""
+"""Cutting D4RL demonstrations into training windows (synthetic data only)."""
 
 import numpy as np
 import pytest
@@ -35,11 +25,7 @@ def flags(length, done_at):
 
 
 def episode_dataset(lengths, dim=3, horizon=HORIZON, max_windows=None):
-    """Transitions where every episode is filled with its own constant.
-
-    Any window that crossed a boundary would then contain two values, which
-    makes boundary bugs trivially detectable.
-    """
+    """Transitions where every episode is filled with its own constant."""
     total = sum(lengths)
     transitions = np.zeros((total, dim), dtype=np.float32)
     terminals = np.zeros(total, dtype=bool)
@@ -65,7 +51,6 @@ def test_episode_bounds_splits_at_terminals():
 
 
 def test_episode_bounds_splits_at_timeouts():
-    """A timeout ends an episode just as a terminal does."""
     bounds = episode_bounds(np.zeros(10, dtype=bool), flags(10, [4, 9]))
     np.testing.assert_array_equal(bounds, [[0, 5], [5, 10]])
 
@@ -145,7 +130,6 @@ def test_subsample_differs_across_seeds():
 
 
 def test_make_transitions_puts_actions_first():
-    """The single statement every constraint index depends on."""
     actions = np.arange(6, dtype=np.float32).reshape(2, 3)
     observations = np.arange(10, dtype=np.float32).reshape(2, 5)
     transitions = make_transitions(actions, observations)
@@ -183,7 +167,6 @@ def test_no_window_crosses_an_episode_boundary():
 
 
 def test_getitem_returns_a_view_not_a_copy():
-    """The whole design rests on never materialising every window."""
     data = episode_dataset([12])
     assert data[0].data_ptr() >= data.transitions.data_ptr()
     assert data[0].untyped_storage().data_ptr() == \
@@ -209,8 +192,6 @@ def test_windows_stacks_at_most_what_exists():
 @pytest.mark.parametrize("spec", [WALKER2D, HOPPER],
                          ids=["walker2d", "hopper"])
 def test_download_url_names_the_mirror_file(spec):
-    """Pinned so a renamed mirror file is a one-line diff, not a 440 MB
-    surprise partway through training."""
     assert download_url(spec.filename) == (
         "https://huggingface.co/datasets/imone/D4RL/resolve/main/"
         f"{spec.filename}"

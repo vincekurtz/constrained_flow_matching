@@ -13,14 +13,7 @@ def plot_2d(
     xs: jax.Array,
     plot_lims: Tuple[float, float] = (-3.0, 3.0),
 ):
-    """Three-panel scatter / trajectory plot for 2-D generated samples.
-
-    Args:
-        dataset: Training dataset with a ``.data`` attribute.
-        x: Final generated samples, shape ``(num_samples, 2)``.
-        xs: Full trajectory, shape ``(num_steps, num_samples, 2)``.
-        plot_lims: (lo, hi) axis limits applied to the training-data panel.
-    """
+    """Plot training data, samples x (N, 2), and trajectories xs (T, N, 2)."""
     assert x.ndim == 2 and x.shape[1] == 2, "plot_2d only supports 2-D data"
 
     lo, hi = plot_lims
@@ -62,21 +55,7 @@ def plot_paths(
     alpha: float = 0.5,
     plot_lims: Tuple[float, float] = (-1.6, 1.6),
 ):
-    """Plot a batch of 2-D robot paths over a field of circular obstacles.
-
-    Args:
-        paths: Robot paths, shape ``(num_paths, num_points, 2)``.
-        obstacles: Optional ``(centers, radii)`` describing the circular
-            obstacles, with shapes ``(M, 2)`` and ``(M,)``.
-        start: Optional start position to mark, shape ``(2,)``.
-        goal: Optional goal position to mark, shape ``(2,)``.
-        ax: Optional matplotlib axes to draw on. A new figure is created when
-            this is not given.
-        title: Title for the axes.
-        color: Color of the paths.
-        alpha: Opacity of the paths.
-        plot_lims: (lo, hi) limits applied to both axes.
-    """
+    """Plot 2D paths (N, P, 2) over optional obstacles (centers, radii)."""
     if ax is None:
         _, ax = plt.subplots(figsize=(6, 6))
 

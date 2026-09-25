@@ -1,10 +1,4 @@
-"""Invariants of the randomly generated obstacle scenes.
-
-``sample_scene`` rejection-samples a layout that is meant to stay solvable --
-obstacles that do not overlap each other and do not crowd the start or goal.
-None of that was covered before, so a scene that quietly boxed in the robot
-would have looked like a failure of the planner.
-"""
+"""Obstacle scene sampling and the collision constraint."""
 
 import jax.numpy as jnp
 import numpy as np
@@ -62,7 +56,6 @@ def test_obstacles_do_not_overlap(seed):
 
 @pytest.mark.parametrize("seed", SEEDS)
 def test_start_and_goal_stay_clear(seed):
-    """The endpoints are never swallowed by an obstacle."""
     centers, radii = sample_scene(seed, 3)
     for endpoint in (np.asarray(START), np.asarray(GOAL)):
         dists = np.linalg.norm(np.asarray(centers) - endpoint, axis=-1)
@@ -70,13 +63,11 @@ def test_start_and_goal_stay_clear(seed):
 
 
 def test_raises_when_the_scene_cannot_be_filled():
-    """An impossible request fails loudly rather than looping forever."""
     with pytest.raises(RuntimeError, match="Could not fit"):
         sample_scene(0, 16)
 
 
 def test_fits_the_largest_feasible_scene():
-    """The rejection sampler is not giving up early on a solvable layout."""
     centers, radii = sample_scene(0, 5)
     assert centers.shape == (5, 2)
 
@@ -107,7 +98,6 @@ def test_path_starts_and_ends_at_the_endpoints():
 
 
 def test_constraint_is_positive_inside_an_obstacle():
-    """h > 0 exactly where the path penetrates an obstacle."""
     centers = jnp.array([[0.0, 0.0]])
     radii = jnp.array([0.5])
     h = make_constraint_fn(centers, radii)
@@ -123,11 +113,7 @@ def test_constraint_is_positive_inside_an_obstacle():
 
 
 def test_constraint_matches_penetration_plus_clearance():
-    """h is exactly r + clearance - distance, on the path the robot follows.
-
-    Checked against the sampled path rather than the knots, since that is
-    what the constraint is imposed on.
-    """
+    """h = r + clearance - distance, measured on the sampled path."""
     centers = jnp.array([[0.0, 0.6]])
     radii = jnp.array([0.25])
     h = make_constraint_fn(centers, radii)
@@ -143,15 +129,13 @@ def test_constraint_matches_penetration_plus_clearance():
 
 
 def test_clearance_pushes_the_boundary_out():
-    """The margin makes a just-touching path count as violating."""
     centers = jnp.array([[0.0, 0.6]])
     h = make_constraint_fn(centers, jnp.array([0.25]))
     knots = jnp.zeros((NUM_KNOTS, 2))
     pts = np.asarray(path(knots, COLLISION_SUBSAMPLE))
     closest = np.min(np.linalg.norm(pts - np.asarray(centers)[0], axis=-1))
 
-    # Shrink the obstacle so the path exactly touches its surface; the
-    # clearance margin means h is still positive, by exactly CLEARANCE.
+    # Obstacle shrunk so the path just touches it.
     touching = make_constraint_fn(centers, jnp.array([closest]))
     assert float(jnp.max(touching(knots))) == pytest.approx(
         CLEARANCE, abs=1e-5

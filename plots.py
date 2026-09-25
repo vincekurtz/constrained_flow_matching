@@ -1,10 +1,6 @@
-"""Plots for the constrained flow-matching paper figures.
+"""Paper figures.
 
-Each ``plot_*`` function takes a ``regenerate`` flag. When ``regenerate=False``
-and a cached raw-data file exists in ``plots/data/``, the function loads it
-and only redraws the figure. When ``regenerate=True`` (or the cache is
-missing), the function re-runs the underlying generation/benchmark, writes
-the raw data, and then draws.
+Raw data is cached in plots/data/; pass --regenerate to rebuild it.
 
 Usage:
     python plots.py --plot all
@@ -16,8 +12,8 @@ import json
 import pickle
 from functools import partial
 from pathlib import Path
-import diffrax
 
+import diffrax
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
@@ -33,8 +29,6 @@ from cfm.methods.ldf import generate_unconstrained
 DATA_DIR = Path("plots/data")
 FIG_DIR = Path("plots/figures")
 
-# Which methods appear in the comparison figures, in plotting order. Labels
-# come from the registry so a rename lands here too.
 METHODS = ("ldf", "pigdm", "pcfm")
 METHOD_COLORS = {
     "ldf": "C0", "pigdm": "C1", "pcfm": "C2", "penalty": "C3", "cbf": "C4",
@@ -43,12 +37,7 @@ METHOD_NAMES = {name: methods.get(name).label for name in METHODS}
 
 
 def _cached(container, method):
-    """Read a method's entry from cached raw data.
-
-    Data written before the ours -> ldf rename is keyed on the old name;
-    fall back to it so existing caches still render. Regenerating writes the
-    new key, after which the fallback is dead.
-    """
+    """Read a method's entry from cached raw data."""
     if method in container:
         return container[method]
     raise KeyError(
@@ -56,7 +45,7 @@ def _cached(container, method):
         f"{', '.join(sorted(container))}); re-run with --regenerate"
     )
 
-# Set uniform font size and serif font style
+
 plt.rcParams.update(
     {
         "font.size": 14,
@@ -75,14 +64,11 @@ def _load_model(example: str):
     return checkpoint.load(problems.get(example).checkpoint_path)
 
 
-# Constraints come from the problem registry, so the figures, the benchmark
-# and the examples all impose exactly the same thing. These used to be three
-# separate definitions.
 def _constraint(example):
     return problems.get(example).make_constraint()
 
 
-CIRCLE = None  # built lazily; see _circle()
+CIRCLE = None
 RIGHT_HALF = None
 
 
@@ -194,11 +180,7 @@ def plot_mnist_violation_vs_penalty(
     num_samples: int = 50,
     dt: float = 0.01,
 ):
-    """MNIST inpainting: max constraint violation vs penalty weight.
-
-    Illustrates the importance of error-controlled integration at high penalty
-    values.
-    """
+    """MNIST inpainting: constraint violation vs penalty weight, per solver."""
     _ensure_dirs()
     data_file = DATA_DIR / "mnist_violation_vs_penalty.json"
 
@@ -287,7 +269,7 @@ def plot_constrained_star(
     num_samples: int = 500,
     num_paths: int = 20,
 ):
-    """For each method, scatter of constrained samples + a few flow paths."""
+    """Constrained samples and a few flow paths for each method."""
     _ensure_dirs()
     data_file = DATA_DIR / "constrained_star.pkl"
 
@@ -399,7 +381,7 @@ def plot_constrained_mnist(
     num_samples: int = 25,
     grid: int = 5,
 ):
-    """Reference image once (top-left); 5x5 grids per method + unconstrained."""
+    """Reference image and a grid of samples per method."""
     _ensure_dirs()
     data_file = DATA_DIR / "constrained_mnist.pkl"
 
@@ -459,21 +441,18 @@ def plot_constrained_mnist(
         ("pcfm", METHOD_NAMES["pcfm"]),
     ]
 
-    # Layout: narrow reference column on the left + 2x2 grid of panels.
     fig = plt.figure(figsize=(12, 9))
     left_fig, right_fig = fig.subfigures(
         1, 2, width_ratios=[1, 2 * grid], wspace=0.06
     )
 
-    # Reference image (left column, centred vertically).
     ax_ref = left_fig.subplots(1, 1)
     ax_ref.imshow(masked_ref.squeeze(-1), cmap="gray", vmin=0, vmax=1)
     ax_ref.set_title("Reference")
     ax_ref.axis("off")
 
-    # 2x2 grid of sample panels with consistent margins.
-    m = 0.0  # equal margin fraction on all four sides of the image grid
-    title_h = 0.10  # fraction of panel height reserved for the title above
+    m = 0.0  # margin around each image grid
+    title_h = 0.10  # fraction of panel height reserved for the title
     panel_figs = right_fig.subfigures(2, 2, wspace=0.08, hspace=0.08)
     for i, (key, title) in enumerate(panels):
         sf = panel_figs[i // 2, i % 2]
@@ -515,12 +494,7 @@ def plot_mnist_mini(
     regenerate: bool = False,
     seed: int = 8,
 ):
-    """One row: reference, then a single sample from each method.
-
-    A compact version of :func:`plot_constrained_mnist` for the intro figure.
-    All four samples start from the same initial noise (``seed``), so the
-    panels differ only in how the constraint is imposed.
-    """
+    """Reference and one sample per method, all from the same initial noise."""
     _ensure_dirs()
     data_file = DATA_DIR / "mnist_mini.pkl"
 
@@ -578,10 +552,8 @@ def plot_mnist_mini(
 
     ref = data["reference"]
     mask = data["mask"]
-    # Dim the region being inpainted, as in the full MNIST figure.
     masked_ref = np.where(mask, ref, 0.5 * ref)
 
-    # Short titles: the registry labels are too wide for a one-row figure.
     panels = [
         (masked_ref, "Reference"),
         (_cached(data, "unconstrained"), "Unconstrained"),
@@ -685,11 +657,7 @@ def plot_violation_vs_steps(
     regenerate: bool = False,
     num_samples: int = 200,
 ):
-    """Violation vs actual solver steps, dual flow (p=2) vs penalty-only.
-
-    Each point is one penalty_weight value. Uses Dopri5 with tol=1e-5; points
-    within each method are connected by a dashed line.
-    """
+    """Violation vs solver steps, dual flow (p=2) vs penalty-only."""
     _ensure_dirs()
     data_file = DATA_DIR / "violation_vs_steps.json"
 
@@ -702,12 +670,9 @@ def plot_violation_vs_steps(
         results = {"penalties": penalties}
 
         for key, rescale_factor in (("exp2", 1.0), ("penalty", 0.0)):
-            records = []  # list of (num_steps, violation) per penalty
+            records = []  # (num_steps, violation) per penalty
             for pw in penalties:
-                # Stiff settings (large penalty_weight, tight tol) can make
-                # the adaptive solver fail outright. Record the point as nan
-                # rather than losing the whole sweep; it is dropped at plot
-                # time.
+                # Stiff settings can make the adaptive solver fail; record nan.
                 try:
                     x, _, n = ldf.generate(
                         model,
@@ -785,13 +750,7 @@ def plot_pcfm_projection_iters(
     num_samples: int = 500,
     num_paths: int = 20,
 ):
-    """PCFM flow paths on the star example, 1 vs 8 Gauss-Newton projections.
-
-    A single per-step projection badly overshoots for the nonlinear unit-circle
-    constraint (projecting a near-origin endpoint estimate onto the circle
-    blows up the radius), so the paths swing wildly before the final sweep
-    snaps them back. Eight iterations converge each step, giving smooth paths.
-    """
+    """PCFM flow paths on the star example, 1 vs 8 Gauss-Newton projections."""
     _ensure_dirs()
     data_file = DATA_DIR / "pcfm_projection_iters.pkl"
 
@@ -805,7 +764,7 @@ def plot_pcfm_projection_iters(
         model, normalizer = _load_model("star")
         data = {}
         for n_iters, _ in iter_configs:
-            x, xs, _  = pcfm.generate(
+            x, xs, _ = pcfm.generate(
                 model,
                 normalizer,
                 _circle(),
@@ -873,17 +832,7 @@ def plot_obstacle_avoidance(
     scene_seed: int = 0,
     num_obstacles: int = 7,
 ):
-    """Robot paths before and after imposing obstacle avoidance.
-
-    The flow model is trained unconditionally on wiggly start-to-goal paths,
-    so the unconstrained samples (left) know nothing about the scene. The
-    same model, constrained at inference time (right), routes around the
-    obstacles it is shown for the first time.
-
-    Scene 2 is used rather than the CLI's default scene 0: at these gains a
-    handful of paths in scene 0 diverge and shoot off the figure, which is a
-    solver artifact rather than anything the figure is about.
-    """
+    """Robot paths with and without the obstacle constraint."""
     _ensure_dirs()
     data_file = DATA_DIR / "obstacle_avoidance.pkl"
 
@@ -893,8 +842,6 @@ def plot_obstacle_avoidance(
 
         model, normalizer = _load_model("obstacles")
         problem = problems.get("obstacles")
-        # make_constraint samples the scene and remembers it, so the figure
-        # draws exactly the obstacles the samples were generated against.
         constraint = problem.make_constraint(
             scene_seed=scene_seed, num_obstacles=num_obstacles
         )
@@ -965,22 +912,8 @@ def plot_obstacle_comparison(
 ):
     """Unconstrained / CBF / LDF paths, one row per scene difficulty.
 
-    An extended version of :func:`plot_obstacle_avoidance`. Every row is a
-    different scene -- ``rows`` gives ``(num_obstacles, seed)`` pairs, and the
-    seed drives both the obstacle layout and the initial noise, so the rows
-    are independent samples rather than the same paths four times over.
-
-    Both methods integrate at the same ``dt`` so the comparison is at equal
-    step count. The CBF filter uses its registry default ``qp="elastic"``
-    rather than the ``qp="exact"`` the obstacles problem pins for the paper
-    table: at this step size the exact QP hits mutually infeasible barrier
-    conditions and fails outright on every row here, leaving nothing to plot.
-
-    Even elastic, the CBF interior-point solve returns a non-finite
-    correction on the very first step for a fair share of samples, and those
-    paths are gone from the panel rather than drawn badly. Each panel is
-    annotated with how many of its paths collided and how many diverged, so
-    the missing ones stay visible in the figure.
+    ``rows`` holds ``(num_obstacles, seed)`` pairs; the seed sets both the
+    scene and the initial noise.
     """
     _ensure_dirs()
     data_file = DATA_DIR / "obstacle_comparison.pkl"
@@ -1010,6 +943,7 @@ def plot_obstacle_comparison(
             row["unconstrained"] = np.asarray(x)
             for name in ("cbf", "ldf"):
                 gains = problem.gains_for(name)
+                # The exact QP is infeasible at this dt on every row.
                 if name == "cbf":
                     gains["qp"] = "elastic"
                 x, _, _ = methods.get(name).run(
@@ -1039,12 +973,7 @@ def plot_obstacle_comparison(
     from problems.obstacle_scene import GOAL, PLOT_SUBSAMPLE, START, path
 
     def _stats(knots, centers, radii):
-        """(collisions, divergences, total) for one panel's paths.
-
-        Collisions are checked densely along the spline, as in
-        ``problems.obstacles.report_violations``, so they reflect the swept
-        path rather than the constraint residual.
-        """
+        """(collisions, divergences, total), checked densely along paths."""
         knots = jnp.asarray(knots)
         diverged = int(jnp.sum(jnp.any(~jnp.isfinite(knots), axis=(1, 2))))
         dense = path(knots, 50)
@@ -1063,9 +992,6 @@ def plot_obstacle_comparison(
         sharex=True, sharey=True,
     )
     for r, row in enumerate(data["rows"]):
-        # The obstacles go on all three panels, including the unconstrained
-        # one: the model never sees them, and the point of that column is
-        # watching the unconstrained paths run straight through them.
         obstacles = (row["centers"], row["radii"])
         for c, key in enumerate(keys):
             ax = axes[r, c]
@@ -1079,8 +1005,6 @@ def plot_obstacle_comparison(
                 color=colors[key],
                 alpha=0.6,
             )
-            # plot_paths adds a start/goal legend to every panel; one is
-            # enough for the whole figure.
             if (r, c) != (0, 0):
                 ax.get_legend().remove()
             ax.set_xticklabels([])
@@ -1096,8 +1020,7 @@ def plot_obstacle_comparison(
                 bbox=dict(boxstyle="round,pad=0.25", fc="white", ec="0.8",
                           alpha=0.85),
             )
-        # The paths never leave |y| < 1, so the square limits plot_paths
-        # applies would leave four rows of mostly empty figure.
+        # Paths stay within |y| < 1; override plot_paths' square limits.
         axes[r, 0].set_ylim(-1.2, 1.2)
         n = row["num_obstacles"]
         axes[r, 0].set_ylabel(f"{n} obstacle{'s' if n != 1 else ''}")
@@ -1112,31 +1035,18 @@ def plot_obstacle_comparison(
 # Locomotion phase portraits
 # ============================================================================
 
-# Framing for the robot panel: (width, height) in pixels, the world height it
-# covers in metres, and the world height at its centre. The pixel aspect is
-# roughly the shape of the panel the figure gives it -- an image axes is
-# aspect-locked, so whatever it does not match it pads with white -- and the
-# extent leaves room for a trailing leg, which reaches further back than the
-# robot is tall.
+# Robot render framing: pixel size, world height covered (m), camera height.
 POSE_PIXELS = (340, 460)
 POSE_EXTENT = 1.85
 POSE_CAMERA_Z = 0.83
 
-# Markers for the two clouds. Shape as well as colour, so the panel survives
-# being printed in greyscale and read by someone who cannot tell C0 from grey.
+# Distinct markers so the clouds survive greyscale printing.
 TRAINING_STYLE = dict(marker="o", c="0.55", alpha=0.45, lw=0)
 GENERATED_STYLE = dict(marker="^", c="C0", alpha=0.5, lw=0)
 
 
 def _locomotion_samples(env, height_limit, phi, num_samples, seed, dt):
-    """Training windows and constrained samples for one environment.
-
-    Everything here is what ``cfm.cli generate --problem <env> --method ldf``
-    would do: the problem's own constraint with its default roof, its default
-    sample count, the registry's LDF gains, and the CLI's default seed and
-    step size. A figure generated against a hand-picked roof is a different
-    experiment from the one the rest of the repo reports.
-    """
+    """Training windows and LDF samples for one environment."""
     from problems.locomotion import REFERENCE_WINDOWS, make_dataset
     from problems.locomotion_spec import SPECS, resolve
 
@@ -1152,9 +1062,6 @@ def _locomotion_samples(env, height_limit, phi, num_samples, seed, dt):
         **problem.gains_for("ldf"),
     )
     limit, weight = resolve(spec, height_limit, phi)
-    # The same reference set the problem's own plot builds. It draws the
-    # first PLOT_WINDOWS of it and measures against the whole thing; here the
-    # rest of it is the pool the drawn pose is chosen from.
     reference = make_dataset(
         spec, max_windows=REFERENCE_WINDOWS
     ).windows().numpy()
@@ -1167,21 +1074,13 @@ def _locomotion_samples(env, height_limit, phi, num_samples, seed, dt):
     }
 
 
-# Which frames of the demonstrations are worth drawing: standing on the floor
-# rather than mid-flight, and upright rather than pitched over. Most frames
-# fail one of the two, and one that does reads as the robot falling rather
-# than as a picture of the system.
+# Only draw poses that are grounded and upright.
 POSE_CLEARANCE = 0.01
 POSE_MAX_PITCH = 0.15
 
 
 def _pose_frame(renderer, spec, reference, num_windows=64):
-    """Pick a pose to draw, and render it.
-
-    Among the frames worth drawing this takes the one of median torso height,
-    so the panel shows an ordinary stance rather than the extreme the eye
-    would otherwise be drawn to.
-    """
+    """Render the grounded, upright pose of median torso height."""
     from problems.locomotion_render import window_to_qpos
 
     poses = np.concatenate(
@@ -1202,13 +1101,9 @@ def _pose_frame(renderer, spec, reference, num_windows=64):
 
 def _draw_pose_panel(ax, renderer, frame, torso_z, label, fontsize=13,
                      vz_length=0.11):
-    """The robot, with the two axes of the phase plane marked on it.
+    """The robot with ``z`` and ``v_z`` marked on it.
 
-    No constraint boundary here. It bounds ``z + phi * v_z``, which is not a
-    height a line across this panel could stand for, and the panel's job is
-    to say what ``z`` and ``v_z`` are -- the panel beside it is where the
-    constraint lives. ``vz_length`` is the ``v_z`` arrow's length as a
-    fraction of the panel height.
+    ``vz_length`` is the ``v_z`` arrow length as a fraction of panel height.
     """
     ax.imshow(frame)
     ax.set_xlim(0, renderer.width)
@@ -1219,9 +1114,7 @@ def _draw_pose_panel(ax, renderer, frame, torso_z, label, fontsize=13,
     torso_col = renderer.col_of_x(0.0, 0.0)
     ax.axhline(ground_row, color="0.35", lw=1.4)
 
-    # z is measured to the torso centre, not to the top of the robot, and a
-    # figure that does not say so invites the reader to check the wrong
-    # thing.
+    # z is measured to the torso centre.
     arrow_col = torso_col - 0.30 * renderer.width
     ax.annotate(
         "", xy=(arrow_col, torso_row), xytext=(arrow_col, ground_row),
@@ -1263,8 +1156,6 @@ def _draw_phase_panel(ax, spec, data, point_size, legend=True):
     z_gen = generated[..., spec.z_index].ravel()
     vz_gen = generated[..., spec.vz_index].ravel()
 
-    # The grey goes down slightly larger, so it still shows around the blue
-    # where the two clouds overlap.
     ax.scatter(z_ref, vz_ref, s=point_size * 1.6,
                label="training data (unconstrained)", **TRAINING_STYLE)
     ax.scatter(z_gen, vz_gen, s=point_size * 1.35, label="generated, LDF",
@@ -1279,10 +1170,7 @@ def _draw_phase_panel(ax, spec, data, point_size, legend=True):
         max(vz_ref.max(), vz_gen.max()) + 0.2,
     )
 
-    # The boundary z + phi*v_z = h_r, slanted because of the lookahead: a
-    # window descending fast enough is feasible above h_r, and one rising
-    # fast enough is infeasible below it. Drawn across the axes rather than
-    # over the data range, so the shaded side reaches the corners.
+    # Boundary z + phi * v_z = h_r, drawn across the full axes.
     vz_line = np.array(ax.get_ylim())
     z_line = limit - weight * vz_line
     ax.fill_betweenx(vz_line, z_line, ax.get_xlim()[1], color="C3",
@@ -1295,9 +1183,6 @@ def _draw_phase_panel(ax, spec, data, point_size, legend=True):
     ax.grid(alpha=0.3)
     if not legend:
         return
-    # Above the axes rather than inside them: the cloud fills the frame, and
-    # in the Hopper panel every interior corner the legend could take has
-    # part of the hop cycle in it.
     ax.legend(
         loc="lower left", bbox_to_anchor=(0.0, 1.01, 1.0, 0.1), mode="expand",
         ncols=3, fontsize=11, frameon=False, markerscale=2.5,
@@ -1315,17 +1200,9 @@ def plot_locomotion_phase(
     dt: float = 0.01,
     point_size: float = 14.0,
 ):
-    """A rendering of the robot beside the phase plane it moves in.
+    """Robot render beside the (z, v_z) phase plane of training and LDF samples.
 
-    The left panel is one frame of the demonstrations with the torso height
-    and its velocity marked on it, so the axes of the right panel are
-    something the reader has seen on the robot rather than two names. The
-    right panel is every timestep of the training windows against every
-    timestep of the constrained samples, with the constraint boundary drawn.
-
-    The arguments mirror the ``generate`` command's, and their defaults are
-    its defaults: leaving ``height_limit`` and ``phi`` as None takes the
-    problem's own roof, exactly as the CLI does.
+    Arguments and defaults mirror the ``generate`` CLI command.
     """
     _ensure_dirs()
     data_file = DATA_DIR / f"locomotion_{env}.pkl"
@@ -1370,10 +1247,7 @@ def plot_locomotion_phase(
 # Overview: the star, obstacles and hopper in one full-width figure
 # ============================================================================
 
-# ICLR's \textwidth, in inches. The figure is drawn at the size it is printed
-# at, so every font size below is its size on the page: 9pt inside the
-# panels and 10pt for the captions, against the body's 10pt. STIX is a Times
-# clone that ships with matplotlib, so it matches the body font everywhere.
+# Drawn at print size (ICLR \textwidth, inches). STIX matches Times.
 ICLR_TEXT_WIDTH = 5.5
 OVERVIEW_RC = {
     "font.family": "serif",
@@ -1395,19 +1269,13 @@ OVERVIEW_RC = {
 }
 OVERVIEW_CAPTION_SIZE = 10
 
-# One colour per role across every panel: grey is what the model does
-# unconstrained, blue is LDF's constrained samples, red is the constraint.
 UNCONSTRAINED_COLOR = "0.6"
 CONSTRAINED_COLOR = METHOD_COLORS["ldf"]
 CONSTRAINT_COLOR = "C3"
 
 
 def _overview_data(name, plot_fn, regenerate):
-    """Load one source figure's cached data, building it if asked or absent.
-
-    The source plot function owns its data, so building it means running
-    that function; it redraws its own figure as a side effect.
-    """
+    """Load a source figure's cached data, building it if needed."""
     data_file = DATA_DIR / f"{name}.pkl"
     if regenerate or not data_file.exists():
         plot_fn(regenerate=True)
@@ -1416,7 +1284,7 @@ def _overview_data(name, plot_fn, regenerate):
 
 
 def _bare(ax):
-    """No ticks: the 2-D panels are qualitative and their units arbitrary."""
+    """Remove ticks and grey the spines."""
     ax.set_xticks([])
     ax.set_yticks([])
     for spine in ax.spines.values():
@@ -1424,10 +1292,7 @@ def _bare(ax):
 
 
 def _overview_legend(fig, center_y):
-    """One legend for all three panels, which share the colour roles.
-
-    ``center_y`` is in figure coordinates.
-    """
+    """Shared legend, centred at figure y-coordinate ``center_y``."""
     from matplotlib.lines import Line2D
     from matplotlib.patches import Patch
 
@@ -1455,7 +1320,6 @@ def _overview_star(ax, star, point_size):
     if x_unc is not None:
         ax.scatter(x_unc[:, 0], x_unc[:, 1], s=point_size * 1.6,
                    color=UNCONSTRAINED_COLOR, alpha=0.5, lw=0)
-    # Triangles, as in the hopper panel and the legend; sized as there.
     ax.scatter(star["x"][:, 0], star["x"][:, 1], s=point_size * 1.35,
                marker="^", color=CONSTRAINED_COLOR, alpha=0.7, lw=0)
     ax.set_xlim(-lim, lim)
@@ -1465,11 +1329,7 @@ def _overview_star(ax, star, point_size):
 
 
 def _overview_obstacles(axes, obstacles):
-    """Unconstrained and constrained paths, one panel each.
-
-    The obstacles are drawn in both panels, so the unconstrained paths are
-    seen to run through them.
-    """
+    """Unconstrained and constrained paths, one panel each."""
     from matplotlib.patches import Circle
 
     from problems.obstacle_scene import GOAL, PLOT_SUBSAMPLE, START, path
@@ -1494,19 +1354,13 @@ def _overview_obstacles(axes, obstacles):
         ax.set_xlim(-lim, lim)
         ax.set_ylim(-lim, lim)
         ax.set_aspect("equal")
-        # Inside the panel, along the bottom, which the paths leave clear.
         ax.text(0.5, 0.04, title, transform=ax.transAxes, ha="center",
                 va="bottom")
         _bare(ax)
 
 
 def _overview_pose(ax, hopper, crop, vz_length):
-    """The hopper render with ``z`` and ``v_z`` marked on it.
-
-    ``crop`` keeps that fraction of the render's width, from the left: the
-    robot and its annotations sit left of centre, and the strip to their
-    right is empty.
-    """
+    """Hopper render, keeping the left ``crop`` fraction of its width."""
     from problems.locomotion_render import LocomotionRenderer
     from problems.locomotion_spec import SPECS
 
@@ -1525,7 +1379,7 @@ def _overview_pose(ax, hopper, crop, vz_length):
 
 
 def _overview_phase(ax, hopper, point_size):
-    """The hopper's phase plane under the height limit, labelled compactly."""
+    """Hopper phase plane with compact labels."""
     from problems.locomotion_spec import SPECS
 
     _draw_phase_panel(ax, SPECS["hopper"], hopper, point_size, legend=False)
@@ -1535,12 +1389,10 @@ def _overview_phase(ax, hopper, point_size):
 
 
 def plot_overview(regenerate: bool = False, point_size: float = 2.0):
-    """The star and obstacles on top, the hopper across the bottom.
+    """Star and obstacles on top, hopper below, at ICLR text width.
 
-    Drawn from the caches of ``inequality_star``, ``obstacle_avoidance``
-    and ``locomotion_hopper``; ``regenerate`` re-runs those three. The
-    layout is in inches at ICLR's text width, so the PNG is meant to go in
-    at ``width=\textwidth`` with no scaling.
+    Drawn from the inequality_star, obstacle_avoidance and locomotion_hopper
+    caches.
     """
     _ensure_dirs()
     star = _overview_data("inequality_star", plot_inequality_star, regenerate)
@@ -1552,12 +1404,10 @@ def plot_overview(regenerate: bool = False, point_size: float = 2.0):
         regenerate,
     )
 
-    # Everything in inches, measured from the top-left corner.
+    # Inches, from the top-left corner.
     W = ICLR_TEXT_WIDTH
     margin, legend_h, caption_h, gap = 0.03, 0.22, 0.22, 0.12
     xlabel_h = 0.33
-    # In from the edge by enough that the star's caption, which is wider
-    # than the panel, stays on the page.
     left = 0.08
     right = W - margin - 0.02
     square, pair_gap = 1.60, 0.05
@@ -1636,8 +1486,7 @@ PLOTS = {
     "overview": plot_overview,
 }
 
-# Figures drawn only from other figures' caches. With ``--plot all`` those
-# caches were just refreshed, so regenerating would redo the same work.
+# Drawn from other figures' caches, so --plot all need not regenerate them.
 COMPOSITES = {"overview"}
 
 

@@ -1,11 +1,4 @@
-"""The two Bezier spline implementations must agree.
-
-``cfm.core.spline.bezier_spline`` (jax, used by the constraint) and
-``cfm.datasets.obstacle_paths.bezier_spline`` (torch, used to build the
-training data) are separate implementations of the same curve. Only the torch
-one was covered before, so a divergence between them would have meant the
-model was trained on different paths than the constraint was imposed on.
-"""
+"""Bezier splines: the jax (constraint) and torch (dataset) versions agree."""
 
 import jax.numpy as jnp
 import numpy as np
@@ -19,9 +12,7 @@ KNOTS = np.array([
     [-1.0, 0.0], [-0.6, 0.4], [-0.1, -0.3], [0.4, 0.5], [1.0, 0.0],
 ])
 
-# Every distinct num_sub is a separate XLA compilation, so the tests below
-# share these two: 1 is the degenerate case where the curve is just its
-# knots, 8 is the general one. Only test_is_smooth needs a denser sampling.
+# Each distinct num_sub is a separate compilation, so keep this list short.
 SUBDIVISIONS = [1, 8]
 
 
@@ -46,7 +37,6 @@ def test_output_shape(num_sub):
 
 
 def test_interpolates_every_knot():
-    """The curve passes through the knots, not merely near them."""
     num_sub = 8
     out = np.asarray(bezier_jax(jnp.array(KNOTS), num_sub))
     for i, knot in enumerate(KNOTS):
@@ -71,7 +61,6 @@ def test_is_smooth():
 
 
 def test_batched_knots():
-    """A leading batch dimension is carried through."""
     batch = jnp.stack([jnp.array(KNOTS), jnp.array(KNOTS) * 0.5])
     out = bezier_jax(batch, 8)
     assert out.shape == (2, 8 * (len(KNOTS) - 1) + 1, 2)

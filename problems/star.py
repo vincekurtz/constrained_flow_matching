@@ -1,9 +1,4 @@
-"""A five-pointed star.
-
-Supports both constraint kinds: the unit-norm equality that pulls every
-sample onto the circumscribed circle, and a right-half-plane inequality,
-selected with ``--constraint``.
-"""
+"""A five-pointed star, with a unit-norm or right-half-plane constraint."""
 
 from cfm.datasets.star import StarDataset
 from problems import Problem, TrainConfig
@@ -21,7 +16,6 @@ CONSTRAINTS = {
 
 
 def make_constraint(constraint="circle", **_):
-    """Pick between this problem's equality and inequality constraints."""
     try:
         return CONSTRAINTS[constraint]()
     except KeyError:

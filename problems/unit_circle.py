@@ -1,9 +1,4 @@
-"""Points on the unit circle.
-
-Supports both constraint kinds: the unit-norm equality the other 2-D
-problems use, and a right-half-plane inequality, selected with
-``--constraint``.
-"""
+"""Points on the unit circle, with a unit-norm or right-half constraint."""
 
 from cfm.datasets.unit_circle import UnitCircleDataset
 from problems import Problem, TrainConfig
@@ -21,7 +16,6 @@ CONSTRAINTS = {
 
 
 def make_constraint(constraint="circle", **_):
-    """Pick between this problem's equality and inequality constraints."""
     try:
         return CONSTRAINTS[constraint]()
     except KeyError:

@@ -5,23 +5,12 @@ import torchvision.transforms.v2 as transforms
 
 
 class MNISTDataset(Dataset):
-    """MNIST handwritten-digit images, returned as normalised float tensors.
+    """Unlabeled MNIST images, float32 of shape (28, 28, 1) in [0, 1].
 
-    Class labels are discarded; only the raw images are exposed.
-
-    Each sample is a float32 tensor of shape ``(28, 28, 1)`` with pixel values
-    scaled to ``[0, 1]``.
+    ``digit`` keeps a single digit, or "all".
     """
 
     def __init__(self, train: bool = True, root: str = "data", digit="all"):
-        """Download (if necessary) and load the MNIST split.
-
-        Args:
-            train: If ``True`` load the training split (60 000 images),
-                otherwise load the test split (10 000 images).
-            root: Directory under which the raw dataset is cached.
-            digit: The digit to load, or "all" for all digits 0-9.
-        """
         super().__init__()
         transform = transforms.Compose(
             [
@@ -32,8 +21,6 @@ class MNISTDataset(Dataset):
         raw = torchvision.datasets.MNIST(
             root=root, train=train, download=True, transform=transform
         )
-        # Stack all images into a single tensor of shape (N, 1, 28, 28),
-        # then permute to (N, 28, 28, 1) to match the (H, W, C) convention.
         images = torch.stack(
             [img for img, d in raw if digit == "all" or d == int(digit)]
         )
@@ -47,7 +34,6 @@ class MNISTDataset(Dataset):
 
 
 if __name__ == "__main__":
-    # Make a quick plot to visualise a few samples
     import matplotlib.pyplot as plt
 
     dataset = MNISTDataset(train=True)

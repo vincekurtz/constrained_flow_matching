@@ -1,16 +1,10 @@
-"""Point-mass path planning around a field of circular obstacles.
+"""Path planning around circular obstacles.
 
-The flow model is trained *unconditionally* on wiggly start-to-goal paths,
-with no knowledge of any particular obstacle field. At inference time a new
-scene is sampled and obstacle avoidance is imposed as inequalities
+The model is trained unconditionally on start-to-goal paths. At inference,
 
     h(x) = r_j + clearance - ||p_i - c_j|| <= 0
 
-for every point p_i sampled along the path and every obstacle (c_j, r_j).
-
-The decision variables are the interior knots of a cubic Bezier spline, so
-the robot's path stays smooth however the constraints push the knots around.
-The scene geometry lives in ``problems/obstacle_scene.py``.
+for points p_i along the spline and obstacles (c_j, r_j).
 """
 
 import jax.numpy as jnp
@@ -33,8 +27,7 @@ from problems.obstacle_scene import (
     sample_scene,
 )
 
-# Remembered from the last make_constraint call so plotting can draw the same
-# scene the samples were generated against.
+# Last scene built by make_constraint, for plotting.
 _LAST_SCENE = {}
 
 
@@ -58,17 +51,12 @@ def make_model():
 
 
 def report_violations(knots, centers, radii):
-    """Print how badly the generated paths hit the obstacles.
-
-    Collisions are checked densely along the path, independently of the
-    points the constraint is imposed on, so the numbers reflect the robot's
-    actual swept path rather than the constraint residual.
-    """
+    """Print collision stats, checked more densely than the constraint."""
     dense = path(knots, 50)
     deltas = dense[:, :, None, :] - centers[None, None, :, :]
     dists = jnp.linalg.norm(deltas, axis=-1)
-    penetration = radii[None, None, :] - dists  # > 0 means inside an obstacle
-    worst = jnp.max(penetration, axis=(1, 2))  # per path
+    penetration = radii[None, None, :] - dists
+    worst = jnp.max(penetration, axis=(1, 2))
 
     num_nan = int(jnp.sum(jnp.isnan(worst)))
     if num_nan:
@@ -81,7 +69,7 @@ def report_violations(knots, centers, radii):
 
 
 def plot(problem, samples, constraint=None, title="Constrained", **_):
-    """Draw generated paths, against the obstacle scene when there is one."""
+    """Draw generated paths, with the obstacle scene if constrained."""
     obstacles = _LAST_SCENE.get("obstacles") if constraint else None
 
     if constraint is None:
@@ -122,12 +110,7 @@ PROBLEM = Problem(
     make_constraint=make_constraint,
     plot=plot,
     method_gains={
-        # The obstacle scene puts many constraints in play at once and needs
-        # much stiffer gains than the 2-D problems. SLACK_GAINS holds the
-        # per-slack-mode values; closed_form is the default.
         "ldf": dict(SLACK_GAINS["closed_form"], num_projection_iters=5),
-        # The ablation shares the penalty weight but not the multiplier
-        # rescaling, which it fixes at zero by definition.
         "penalty": {
             "penalty_weight": SLACK_GAINS["closed_form"]["penalty_weight"],
             "num_projection_iters": 5,

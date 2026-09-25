@@ -9,7 +9,7 @@ from cfm.plotting import plot_2d
 
 
 def mlp(hidden_sizes, time_embedding_size=4, data_shape=(2,)):
-    """Factory for the small MLP flow model the 2-D problems share."""
+    """Factory for the small MLP used by the 2-D problems."""
     def make():
         return FlowMLP(
             data_shape=data_shape,
@@ -21,18 +21,14 @@ def mlp(hidden_sizes, time_embedding_size=4, data_shape=(2,)):
 
 
 def unit_circle_constraint():
-    """g(x) = ||x||^2 - 1, satisfied on the unit circle.
-
-    Written once here rather than six times across the example scripts, so
-    the benchmark, the figures and the examples cannot drift apart.
-    """
+    """g(x) = ||x||^2 - 1."""
     return equality(
         lambda x: jnp.sum(x**2, axis=-1) - 1.0, name="||x|| = 1"
     )
 
 
 def right_half_constraint():
-    """h(x) = -x[0] <= 0, satisfied on the right half plane."""
+    """h(x) = -x[0] <= 0."""
     return inequality(lambda x: jnp.atleast_1d(-x[0]), name="x[0] >= 0")
 
 

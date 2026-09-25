@@ -1,10 +1,4 @@
-"""Expansion of a sweep configuration into cases.
-
-The table asks one method to appear on more than one row -- LDF with and
-without the final projection -- and one problem to appear under more than one
-scene. Both are config-level ideas that never reach a generator, so they are
-checked here rather than by running anything.
-"""
+"""Sweep config expansion, baseline comparison, and LaTeX table rendering."""
 
 import json
 
@@ -18,7 +12,7 @@ def _rows(cases, problem):
 
 
 def _ldf_weights(cases, method="ldf"):
-    """The penalty weight each LDF-family case runs at, keyed by step count."""
+    """(steps, penalty_weight) pairs for the given method's cases."""
     return {(c.steps, c.gains["penalty_weight"])
             for c in cases if c.method == method}
 
@@ -111,7 +105,7 @@ def test_the_same_problem_under_two_scenes_gets_two_files():
 
 
 def test_a_block_only_runs_methods_the_constraint_admits():
-    """Obstacle avoidance is an inequality, so PCFM drops out on its own."""
+    """PCFM is equality-only, so it drops out for obstacles."""
     cases = sweep.build_cases({
         "problems": ["obstacles"], "methods": ["cbf", "pcfm", "ldf"],
         "steps": [500],
@@ -137,12 +131,10 @@ def test_a_table_problem_label_renames_each_problem():
         }],
     })
     labels = {c.problem: c.problem_label for c in cases}
-    # A problem the table leaves out keeps its registered label.
     assert labels == {"star": "Star (eq.)", "mnist": "MNIST"}
 
 
 def test_the_shipped_table1_config_expands():
-    """The config the paper's table is built from stays loadable."""
     cases = sweep.build_cases(
         sweep.load_config("experiments/table1.toml")
     )
@@ -155,12 +147,9 @@ def test_the_shipped_table1_config_expands():
     assert ("Walker2D", "CBF safety filter (SafeFlow)") in rows
     assert ("Hopper", "LDF + projection") in rows
     assert ("Star (ineq.)", "CBF safety filter (SafeFlow)") in rows
-    # Every scenario runs at one resolution, since the table has no Steps
-    # column to tell two apart.
+    # One step count per scenario (the table has no Steps column).
     assert len({(c.problem_label, c.name) for c in cases}) == len(cases)
-    # The star appears under both of its constraints, at the same
-    # resolution and the same penalty weight, so the two blocks differ in
-    # the constraint and nothing else.
+    # The star's two constraints differ in nothing else.
     star = _rows(cases, "star")
     equality = [c for c in star if not c.problem_options]
     inequality = [c for c in star if c.problem_options]
@@ -168,26 +157,20 @@ def test_the_shipped_table1_config_expands():
                for c in inequality)
     assert {c.steps for c in star} == {100}
     assert _ldf_weights(inequality) == _ldf_weights(equality)
-    # The penalty-only ablation runs on the inequality at LDF's weights.
     assert ("Star (ineq.)", "Penalty only") in rows
     assert (_ldf_weights(inequality, "penalty")
             == _ldf_weights(inequality))
-    # PCFM and PiGDM are equality-only and drop out of the inequality block.
     assert {c.method for c in inequality} == {"cbf", "penalty", "ldf"}
-    # The penalty-only ablation runs on every inequality problem, at the
-    # penalty weight LDF runs at there.
+    # Penalty-only runs at LDF's weight on every inequality problem.
     for problem in ("obstacles", "walker2d", "hopper"):
         weights = {c.method: c.gains["penalty_weight"]
                    for c in _rows(cases, problem)
                    if c.method in ("ldf", "penalty")}
         assert weights["penalty"] == weights["ldf"]
-    # Every obstacle case runs at dt = 0.002 and every CBF one relaxes the QP.
     obstacles = _rows(cases, "obstacles")
     assert {c.steps for c in obstacles} == {500}
     assert all(c.gains["qp"] == "elastic"
                for c in obstacles if c.method == "cbf")
-    # The locomotion rows run at the example's dt = 0.01, and relax the QP
-    # too: the exact solve fails part-way through a Hopper sweep.
     locomotion = _rows(cases, "walker2d") + _rows(cases, "hopper")
     assert {c.steps for c in locomotion} == {100}
     assert all(c.gains["qp"] == "elastic"
@@ -195,11 +178,7 @@ def test_the_shipped_table1_config_expands():
 
 
 def _baseline(tmp_path, params, mean_violation=1e-3, mean_time_ms=10.0):
-    """A one-entry baseline file for the star, as the recorder wrote them.
-
-    Keyed ``star/ours``, since the baseline predates the ours -> ldf rename
-    and ``compare_to_baseline`` maps the name back before looking it up.
-    """
+    """A one-entry baseline file for the star, keyed ``star/ours``."""
     path = tmp_path / "baseline.json"
     path.write_text(json.dumps({"results": {"star/ours": {
         "mean_violation": mean_violation,
@@ -220,12 +199,7 @@ def _record(**overrides):
 
 
 def test_baseline_ignores_a_scenario_it_never_ran(tmp_path):
-    """The star under its inequality is not the star the baseline recorded.
-
-    The baseline keys on problem and method alone, so without this the
-    inequality rows would be measured against the unit-norm equality's
-    violation and read as a regression.
-    """
+    """The baseline recorded the equality star, not the inequality one."""
     path = _baseline(tmp_path, params={"dt": 0.01})
     record = _record(problem_options={"constraint": "right_half"})
     assert sweep.compare_to_baseline([record], path) == []
@@ -240,7 +214,6 @@ def test_baseline_still_compares_the_scenario_it_did_run(tmp_path):
 
 
 def test_baseline_ignores_a_scene_it_never_ran(tmp_path):
-    """The crowded obstacle scene is not the one the baseline recorded."""
     path = _baseline(tmp_path, params={"num_obstacles": 2, "scene_seed": 0})
     record = _record(problem_options={"num_obstacles": 6, "scene_seed": 0})
     assert sweep.compare_to_baseline([record], path) == []
@@ -270,14 +243,13 @@ def test_latex_table_pivots_methods_into_column_pairs():
                       label="Star (ineq.)"),
     ]
     lines = sweep.render_latex_table(records).splitlines()
-    rows = [l for l in lines if l.startswith("Star")]
+    rows = [line for line in lines if line.startswith("Star")]
     assert rows == [
         r"Star & --- & --- & --- & --- & 29.6 & \scib{4.5}{-8} & --- & --- "
         r"& \textbf{7.7} & \sci{2.6}{-3} & --- & --- \\",
         r"Star (ineq.) & --- & --- & 318.0 & \textbf{0}~$\dagger$ "
         r"& --- & --- & --- & --- & --- & --- & \textbf{7.9} & \textbf{0} \\",
     ]
-    # The two halves are split by a rule.
     assert lines.index(rows[1]) == lines.index(rows[0]) + 2
 
 

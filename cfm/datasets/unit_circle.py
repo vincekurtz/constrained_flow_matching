@@ -2,7 +2,7 @@ import torch
 from torch.utils.data import Dataset
 
 class UnitCircleDataset(Dataset):
-    """A simple manifold-based dataset: all points lie on the 2D unit circle."""
+    """Points on the unit circle."""
     def __init__(self, num_samples: int = 1024):
         super().__init__()
         self.num_samples = num_samples
@@ -21,7 +21,6 @@ class UnitCircleDataset(Dataset):
 
 
 if __name__ == "__main__":
-    # Make a quick plot to visualize the dataset
     import matplotlib.pyplot as plt
 
     dataset = UnitCircleDataset(num_samples=128)

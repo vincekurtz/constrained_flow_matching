@@ -1,22 +1,7 @@
 """Declarative benchmark sweeps.
 
-Replaces ``make_benchmark_table.sh``, which re-ran the benchmark and then
-recovered the numbers by grepping its stdout with a regex -- while the
-benchmark was already able to write them as JSON, and while the figures kept
-a second, parallel timing stack of their own.
-
-Here one runner produces one result file per case, and both the table and the
-figures read those files. A case is skipped when a result for its exact
-configuration already exists, so an interrupted sweep resumes rather than
-starting over.
-
-A configuration is a list of ``[[block]]`` sections, each its own
-problems x methods x steps grid -- one table needs more than one grid, since
-the obstacle rows run a different scene and a much finer step size than the
-2-D and MNIST rows. A row within a grid is named by a ``[[variants]]`` entry:
-a registered method with some gains pinned, which is how the same method can
-appear twice (LDF with and without the final projection) without being
-registered twice.
+A config is a list of ``[[block]]`` sections, each a problems x methods x steps
+grid. Each case writes one result file, and cases already on disk are skipped.
 """
 
 import hashlib
@@ -41,13 +26,7 @@ RESULTS_DIR = Path("results")
 
 @dataclass(frozen=True)
 class Case:
-    """One (problem, row, steps) benchmark run.
-
-    A *row* of the table is a method plus the gains that pin it down, which
-    is not the same thing as a method: LDF with the final projection and LDF
-    without it are one method at two settings, and both are rows. ``variant``
-    names the row, and is what keeps the two apart in the results directory.
-    """
+    """One (problem, row, steps) benchmark run. ``variant`` names the row."""
 
     problem: str
     method: str
@@ -61,7 +40,7 @@ class Case:
 
     @property
     def name(self) -> str:
-        """The row's name: its variant, or the method when it has none."""
+        """The variant name, or the method when there is none."""
         return self.variant or self.method
 
     @property
@@ -81,8 +60,7 @@ class Case:
 
     @property
     def label(self) -> str:
-        # The scene is in the progress line because two obstacle blocks run
-        # the same problem and would otherwise scroll past identically.
+        # Include problem options so blocks on the same problem are distinct.
         scene = "".join(
             f" {k}={v}" for k, v in sorted(self.problem_options.items())
         )
@@ -91,12 +69,7 @@ class Case:
 
 @dataclass(frozen=True)
 class Variant:
-    """A named table row: a registered method with some gains pinned.
-
-    Declaring the two LDF rows as variants gives each its own label and its
-    own result file without inventing a second entry in the method registry
-    for what is one algorithm with one gain changed.
-    """
+    """A named table row: a registered method with some gains pinned."""
 
     name: str
     method: str
@@ -111,11 +84,11 @@ def load_config(path) -> Dict[str, Any]:
 
 
 def _variants(config: Dict[str, Any]) -> Dict[str, Variant]:
-    """The variants a config declares, keyed by the name its rows use."""
+    """The config's variants, keyed by name."""
     out = {}
     for entry in config.get("variants", []):
         method_name = entry.get("method", entry["name"])
-        method = methods.get(method_name)  # fail loudly on a typo
+        method = methods.get(method_name)
         out[entry["name"]] = Variant(
             name=entry["name"],
             method=method_name,
@@ -126,11 +99,7 @@ def _variants(config: Dict[str, Any]) -> Dict[str, Variant]:
 
 
 def _blocks(config: Dict[str, Any]) -> List[Dict[str, Any]]:
-    """The config's blocks, each its own problems x methods x steps grid.
-
-    A config with no ``[[block]]`` section is itself the single block, so the
-    flat form still works.
-    """
+    """The config's blocks. A config without ``[[block]]`` is one block."""
     shared = {
         k: v for k, v in config.items() if k not in ("block", "variants")
     }
@@ -138,20 +107,14 @@ def _blocks(config: Dict[str, Any]) -> List[Dict[str, Any]]:
     if not blocks:
         return [shared]
     return [
-        # Gain overrides accumulate rather than replace: a block adds its own
-        # to whatever the config declared for every block, and wins on a tie
-        # by coming later in the list.
+        # Block gain overrides append to (and take precedence over) shared ones.
         {**shared, **b, "gains": shared.get("gains", []) + b.get("gains", [])}
         for b in blocks
     ]
 
 
 def _selects(value, *names) -> bool:
-    """Does a gain entry's selector cover this row?
-
-    An absent key selects everything, and a list selects any of its entries,
-    so one override can name several rows at once.
-    """
+    """Whether a selector (None, a value, or a list) matches any of names."""
     if value is None:
         return True
     if isinstance(value, list):
@@ -160,20 +123,14 @@ def _selects(value, *names) -> bool:
 
 
 def build_cases(config: Dict[str, Any]) -> List[Case]:
-    """Expand a sweep configuration into individual cases.
-
-    Cases whose method cannot handle the problem's constraint are dropped
-    rather than erroring, so one config can span problems with different
-    constraint kinds.
-    """
+    """Expand a config into cases, dropping unsupported method/problem pairs."""
     variants = _variants(config)
     cases = []
 
     for block in _blocks(config):
         num_samples = block.get("num_samples", 20)
         overrides = block.get("gains", [])
-        # A string renames the block's one problem; a table renames each
-        # problem it names, for a block that lists several.
+        # A string labels the block's single problem; a table labels each.
         problem_label = block.get("problem_label", {})
         if isinstance(problem_label, str):
             if len(block["problems"]) > 1:
@@ -210,10 +167,7 @@ def build_cases(config: Dict[str, Any]) -> List[Case]:
                                 k: v for k, v in entry.items()
                                 if k not in ("method", "problem", "steps")
                             })
-                    # A variant's own gains are what make it that row, so
-                    # they land last: an override aimed at the method as a
-                    # whole tunes both LDF rows without collapsing them into
-                    # one.
+                    # Variant gains define the row, so they win.
                     if variant:
                         gains.update(variant.gains)
 
@@ -250,8 +204,6 @@ def run_case(case: Case, results_dir: Path = RESULTS_DIR) -> Dict[str, Any]:
     constraint = problem.make_constraint(**case.problem_options)
 
     cfg = dict(case.gains)
-    # A step count means dt for the integrating methods and num_steps for
-    # PCFM, which walks a fixed grid instead.
     if case.method in methods.USES_DT:
         cfg["dt"] = 1.0 / case.steps
     else:
@@ -333,7 +285,7 @@ def run_sweep(
 
 
 def load_results(results_dir: Path = RESULTS_DIR) -> List[Dict[str, Any]]:
-    """Every recorded result, newest configuration wins on ties."""
+    """Load every recorded result."""
     return [
         json.loads(p.read_text())
         for p in sorted(Path(results_dir).glob("*.json"))
@@ -341,14 +293,7 @@ def load_results(results_dir: Path = RESULTS_DIR) -> List[Dict[str, Any]]:
 
 
 def render_table(records, fmt: str = "markdown") -> str:
-    """Render benchmark records as a table.
-
-    Rows are ordered by problem, then by the problem's label so the two
-    obstacle scenes stay in separate stretches, then step count, then the
-    order methods are registered, then the row label so a method's variants
-    keep a fixed order. The table therefore reads the same way every time it
-    is regenerated, from whatever result files happen to be on disk.
-    """
+    """Render benchmark records as a markdown or LaTeX table."""
     order = list(methods.METHODS)
     rows = sorted(
         records,
@@ -390,9 +335,7 @@ def render_table(records, fmt: str = "markdown") -> str:
     return "\n".join(lines)
 
 
-# The LaTeX table's column groups, in order: a row name from the sweep (a
-# variant, or a method with none) and the header it sits under. A row name
-# missing here still gets a column, after these, headed by its method label.
+# (row name, header) for the LaTeX columns. Unlisted rows are appended.
 LATEX_COLUMNS = [
     ("penalty", "Penalty only"),
     ("cbf", r"CBF~\cite{safeflow2025}"),
@@ -409,27 +352,22 @@ LATEX_VIOLATION_THRESHOLD = 1e-6
 
 
 def _latex_violation(value: float, num_nan: int) -> str:
-    r"""A violation as ``\sci{m}{e}``, bold (``\scib``) when it is negligible.
-
-    The ``\sci`` and ``\scib`` macros are the paper's, not LaTeX's.
-    """
+    r"""Format a violation with the paper's ``\sci``/``\scib`` macros."""
     if value == 0:
         cell = r"\textbf{0}"
     else:
         mantissa, exponent = f"{value:.1e}".split("e")
         macro = r"\scib" if value < LATEX_VIOLATION_THRESHOLD else r"\sci"
         cell = f"{macro}{{{mantissa}}}{{{int(exponent)}}}"
-    # The mean is over the samples that did not NaN; the dagger says so.
+    # Dagger marks a mean taken over non-NaN samples only.
     return cell + r"~$\dagger$" if num_nan else cell
 
 
 def render_latex_table(records) -> str:
     """Render benchmark records as the paper's LaTeX tabular.
 
-    One row per problem scenario, and a Time/Viol. column pair per method.
-    Equality-constrained rows come first, separated from the inequality ones
-    by a rule, and a method that does not apply to a row shows dashes. There
-    is no Steps column, so each scenario must be recorded at one resolution.
+    One row per scenario (equality first), a Time/Viol. pair per method.
+    Each scenario must be recorded at a single step count.
     """
     kinds = {}
 
@@ -515,14 +453,7 @@ def render_latex_table(records) -> str:
 
 
 def _ran_the_baseline_scenario(record, want) -> bool:
-    """Did this case run the problem configuration the baseline recorded?
-
-    The baseline keys on problem and method alone, from before a problem
-    could appear under more than one constraint or scene. A case whose
-    problem options the baseline never ran -- the star under its inequality,
-    the crowded obstacle scene -- is not a comparison, so it is skipped
-    rather than measured against the wrong reference.
-    """
+    """Whether the record's problem options match the baseline's."""
     params = want.get("params", {})
     return all(
         params.get(k) == v
@@ -536,17 +467,10 @@ def compare_to_baseline(
     time_tolerance: float = 1.05,
     baseline_steps: int = 100,
 ):
-    """Check recorded results against the pre-refactor baseline.
+    """Compare results to ``experiments/baseline.json``; return regressions.
 
-    The baseline was recorded at a single resolution (dt = 0.01, and
-    num_steps = 100 for PCFM), so only cases at that step count are
-    comparable; others are skipped rather than compared against the wrong
-    reference.
-
-    Returns a list of human-readable regressions. Violation must be no worse,
-    and wall-clock no more than ``time_tolerance`` times slower -- except
-    that a case which spends more time and buys a better violation is
-    reported as a trade, not a regression.
+    Only unprojected cases at ``baseline_steps`` are compared. Slower runs
+    with a better violation are reported as a trade, not a regression.
     """
     baseline_path = Path(baseline_path or "experiments/baseline.json")
     if not baseline_path.exists():
@@ -558,13 +482,9 @@ def compare_to_baseline(
     for r in records:
         if r["steps"] != baseline_steps:
             continue
-        # The baseline predates the final Gauss-Newton projection, so only
-        # the rows that skip it are comparable. A projected row lands orders
-        # of magnitude tighter and would otherwise read as an improvement in
-        # something the baseline never measured.
         if float(r.get("config", {}).get("num_projection_iters", 0)) > 0:
             continue
-        # The baseline predates the ours -> ldf rename.
+        # The baseline uses the old method name.
         legacy = {"ldf": "ours"}.get(r["method"], r["method"])
         key = f"{r['problem']}/{legacy}"
         if key not in baseline:
@@ -576,8 +496,7 @@ def compare_to_baseline(
         worse_violation = (
             not jnp.isnan(want["mean_violation"])
             and r["mean_violation"] > want["mean_violation"]
-            # Both sides sit at the float32 noise floor for methods that
-            # project to numerical zero; only flag a real change.
+            # Ignore changes at the float32 noise floor.
             and r["mean_violation"] > 1e-6
         )
         slower = r["mean_time_ms"] > time_tolerance * want["mean_time_ms"]

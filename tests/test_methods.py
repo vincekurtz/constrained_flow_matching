@@ -1,14 +1,4 @@
-"""The contract every registered method must satisfy.
-
-One test body, parameterized over the method registry, so a newly registered
-baseline is covered the moment it is added rather than needing its own file.
-
-Each method is generated from exactly once (see ``run_once`` in conftest);
-the assertions below all inspect that single result. Properties that belong
-to the shared plumbing rather than to any individual method -- seeding, in
-particular -- are tested directly against ``cfm.core.solve`` and end-to-end
-through LDF only, instead of once per method.
-"""
+"""The contract every registered method must satisfy."""
 
 import jax
 import jax.numpy as jnp
@@ -28,15 +18,13 @@ IDS = [m.name for m in ALL]
 
 
 def run(method, model, normalizer, constraint, **overrides):
-    """Invoke a method with test-scale settings it can actually accept."""
+    """Invoke a method with test-scale settings."""
     cfg = {"num_samples": NUM_SAMPLES, "seed": SEED}
     cfg.update(overrides)
     if method.name in methods.USES_DT:
         cfg.setdefault("dt", DT)
     else:
         cfg.setdefault("num_steps", int(1 / DT))
-    # Only the LDF family takes penalty_weight as a constraint scale; the
-    # other methods' gains are already tuned in the registry.
     if method.name in ("ldf", "penalty"):
         cfg.setdefault("penalty_weight", PENALTY_WEIGHT)
     return method.run(model, normalizer, constraint, **cfg)
@@ -44,7 +32,7 @@ def run(method, model, normalizer, constraint, **overrides):
 
 @pytest.fixture(scope="session")
 def result_for(run_once, model, normalizer, circle, right_half):
-    """The one result per method that the contract tests below share."""
+    """One shared result per method."""
     def get(method):
         kind = EQUALITY if EQUALITY in method.supports else INEQUALITY
         constraint = constraint_for(kind, circle, right_half)
@@ -85,7 +73,6 @@ def test_output_is_finite(method, result_for):
 
 @pytest.mark.parametrize("method", ALL, ids=IDS)
 def test_trajectory_ends_at_final_sample(method, result_for):
-    """``xs[-1]`` is the sample that was returned, post-projection."""
     _, out = result_for(method)
     assert jnp.allclose(out.xs[-1], out.x, atol=1e-6)
 
@@ -94,7 +81,6 @@ def test_trajectory_ends_at_final_sample(method, result_for):
 def test_rejects_unsupported_constraint_kind(
     method, model, normalizer, circle, right_half
 ):
-    """A method must refuse a constraint kind it cannot handle."""
     unsupported = {EQUALITY, INEQUALITY} - set(method.supports)
     if not unsupported:
         pytest.skip(f"{method.name} supports every constraint kind")
@@ -107,7 +93,7 @@ def test_rejects_unsupported_constraint_kind(
 
 
 # ---------------------------------------------------------------------------
-# The scientific claim: constraining actually reduces violation.
+# Constraining reduces violation
 # ---------------------------------------------------------------------------
 
 CONSTRAINED = [m for m in ALL if m.name != "unconstrained"]
@@ -119,7 +105,6 @@ CONSTRAINED = [m for m in ALL if m.name != "unconstrained"]
 def test_reduces_violation_vs_unconstrained(
     method, result_for, unconstrained
 ):
-    """Every method must beat the unconstrained flow on its own constraint."""
     constraint, out = result_for(method)
 
     baseline = float(jnp.mean(constraint.violations(unconstrained.x)))
@@ -131,12 +116,7 @@ def test_reduces_violation_vs_unconstrained(
 
 
 def test_ldf_beats_penalty_only(result_for):
-    """The dual dynamics must earn their keep.
-
-    This is the guard against a regression that silently zeroes lambda: with
-    rescale_factor = 0 the flow is a pure penalty, and LDF should be clearly
-    tighter. Measured at 15.8x on the trained star model.
-    """
+    """Guards against a regression that silently freezes the multipliers."""
     circle, ldf = result_for(methods.LDF)
     _, penalty = result_for(methods.PENALTY)
 
@@ -151,7 +131,7 @@ def test_ldf_beats_penalty_only(result_for):
 def test_penalty_only_freezes_multipliers(
     model, normalizer, circle, result_for
 ):
-    """rescale_factor = 0 must be exactly what the penalty ablation runs."""
+    """The penalty ablation is exactly LDF with rescale_factor = 0."""
     explicit = generate(
         model, normalizer, circle, num_samples=NUM_SAMPLES, dt=DT, seed=SEED,
         penalty_weight=PENALTY_WEIGHT, rescale_factor=0.0,
@@ -161,8 +141,7 @@ def test_penalty_only_freezes_multipliers(
 
 
 # ---------------------------------------------------------------------------
-# Seeding. Shared by every method through cfm.core.solve, so it is tested
-# there directly and end-to-end through one method rather than all six.
+# Seeding (shared via cfm.core.solve, so tested once)
 # ---------------------------------------------------------------------------
 
 

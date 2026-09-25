@@ -1,21 +1,8 @@
-"""Trajectory windows from the D4RL locomotion demonstrations.
+"""Fixed-length windows of D4RL locomotion episodes.
 
-One sample is a fixed-length window of a single demonstration episode, laid
-out the way Diffuser lays out a plan: ``(horizon, action_dim + obs_dim)``,
-with the action block first. The flow model is trained unconditionally on
-these windows; the constraint lives in ``problems/locomotion_spec.py``.
-
-The official D4RL host (rail.eecs.berkeley.edu) is unreachable, so the same
-v2 hdf5 files are fetched from the ``imone/D4RL`` mirror on HuggingFace and
-cached under ``data/d4rl/``. Roughly 770 MB for both environments.
-
-Windows are indexed rather than materialized: walker2d-medium-expert holds
-about two million transitions, so every valid window would be several
-gigabytes. The flat transition array is the only thing resident, and
-``__getitem__`` returns a slice of it.
-
-The windowing math is module-level and pure, and ``from_arrays`` builds a
-dataset straight from in-memory arrays, so the tests never touch the network.
+Each sample is ``(horizon, action_dim + obs_dim)``, actions first (Diffuser
+layout). The v2 hdf5 files come from the ``imone/D4RL`` HuggingFace mirror and
+are cached under ``data/d4rl/``.
 """
 
 import os
@@ -44,11 +31,7 @@ def dataset_path(filename: str, root: str = DEFAULT_ROOT) -> Path:
 
 
 def ensure_downloaded(filename: str, root: str = DEFAULT_ROOT) -> Path:
-    """Return the cached file, fetching it from the mirror if necessary.
-
-    Downloads to a ``.part`` file and renames on success, so an interrupted
-    download never leaves a truncated file that looks complete.
-    """
+    """Return the cached file, fetching it from the mirror if necessary."""
     path = dataset_path(filename, root)
     if path.exists():
         return path
@@ -80,18 +63,7 @@ def ensure_downloaded(filename: str, root: str = DEFAULT_ROOT) -> Path:
 def make_transitions(
     actions: np.ndarray, observations: np.ndarray
 ) -> np.ndarray:
-    """Concatenate into the Diffuser layout: actions first, then the state.
-
-    This is the one place the layout is decided; every constraint index is
-    ``action_dim`` plus an observation index because of it.
-
-    Args:
-        actions: Shape ``(N, action_dim)``.
-        observations: Shape ``(N, obs_dim)``.
-
-    Returns:
-        Shape ``(N, action_dim + obs_dim)``, float32.
-    """
+    """Concatenate to (N, action_dim + obs_dim), actions first."""
     return np.concatenate(
         [np.asarray(actions), np.asarray(observations)], axis=-1
     ).astype(np.float32)
@@ -100,19 +72,7 @@ def make_transitions(
 def episode_bounds(
     terminals: np.ndarray, timeouts: np.ndarray
 ) -> np.ndarray:
-    """Split a flat transition sequence into episodes.
-
-    An episode ends at any index where the environment terminated or timed
-    out. A trailing run with no flag is still an episode.
-
-    Args:
-        terminals: Boolean flags, shape ``(N,)``.
-        timeouts: Boolean flags, shape ``(N,)``.
-
-    Returns:
-        ``(num_episodes, 2)`` array of ``[start, stop)`` index pairs, which
-        together partition ``[0, N)``.
-    """
+    """Return (num_episodes, 2) ``[start, stop)`` pairs partitioning [0, N)."""
     done = np.asarray(terminals).astype(bool) | np.asarray(timeouts).astype(
         bool
     )
@@ -124,11 +84,7 @@ def episode_bounds(
 
 
 def window_starts(bounds: np.ndarray, horizon: int) -> np.ndarray:
-    """Every start index whose window fits inside a single episode.
-
-    A window that straddled a reset would teach the model to teleport, so
-    episodes shorter than ``horizon`` contribute nothing.
-    """
+    """Every start index whose window fits inside a single episode."""
     starts = [
         np.arange(start, stop - horizon + 1)
         for start, stop in np.asarray(bounds)
@@ -142,13 +98,7 @@ def window_starts(bounds: np.ndarray, horizon: int) -> np.ndarray:
 def subsample_starts(
     starts: np.ndarray, max_windows: Optional[int], seed: int = 0
 ) -> np.ndarray:
-    """Keep at most ``max_windows`` of the starts, deterministically.
-
-    Two million windows would make the normalizer's pass over the data, and
-    every epoch, far more expensive without teaching the model anything more.
-    The result stays sorted, so the slices it drives stay roughly sequential
-    in memory.
-    """
+    """Keep a sorted random subset of at most ``max_windows`` starts."""
     starts = np.asarray(starts)
     if max_windows is None or len(starts) <= max_windows:
         return starts
@@ -160,13 +110,8 @@ def subsample_starts(
 def load_hdf5(
     path,
 ) -> Tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Read a D4RL v2 file into ``(actions, observations, terminals,
-    timeouts)``.
-
-    ``h5py`` is imported here rather than at module scope so that the pure
-    windowing helpers, and the tests that cover them, import without it.
-    """
-    import h5py
+    """Read (actions, observations, terminals, timeouts) from a D4RL file."""
+    import h5py  # lazy, so tests of the helpers above don't need it
 
     with h5py.File(path, "r") as f:
         actions = np.asarray(f["actions"], dtype=np.float32)
@@ -177,11 +122,13 @@ def load_hdf5(
 
 
 class D4RLWindowDataset(Dataset):
-    """Fixed-length windows of D4RL locomotion demonstrations.
+    """Windows of D4RL demonstrations, sliced lazily from the transitions.
 
-    Each sample is a float32 tensor of shape ``(horizon, action_dim +
-    obs_dim)``, sliced from the flat transition array so no copy of the whole
-    window set is ever made.
+    Args:
+        filename: file on the mirror, e.g. "hopper_medium_expert-v2.hdf5".
+        max_windows: cap on the number of windows, or None for all.
+        root: cache directory.
+        action_dim, obs_dim: expected widths, checked when given.
     """
 
     def __init__(
@@ -194,20 +141,6 @@ class D4RLWindowDataset(Dataset):
         action_dim: Optional[int] = None,
         obs_dim: Optional[int] = None,
     ):
-        """Load (downloading if needed) one D4RL file and index its windows.
-
-        Args:
-            filename: Name of the file on the mirror, e.g.
-                ``"hopper_medium_expert-v2.hdf5"``.
-            horizon: Window length.
-            max_windows: Cap on the number of windows, or None for all.
-            seed: Seed for the subsampling.
-            root: Directory the file is cached in.
-            action_dim: Expected action width. Checked when given, so a
-                re-uploaded mirror file fails loudly rather than silently
-                shifting every constraint index by a column.
-            obs_dim: Expected observation width, checked the same way.
-        """
         super().__init__()
         path = ensure_downloaded(filename, root)
         actions, observations, terminals, timeouts = load_hdf5(path)
@@ -242,10 +175,7 @@ class D4RLWindowDataset(Dataset):
         max_windows: Optional[int] = 32768,
         seed: int = 0,
     ) -> "D4RLWindowDataset":
-        """Build a dataset from in-memory arrays, skipping the download.
-
-        The seam the windowing tests run through.
-        """
+        """Build a dataset from in-memory arrays, skipping the download."""
         dataset = cls.__new__(cls)
         Dataset.__init__(dataset)
         dataset._build(
@@ -285,8 +215,7 @@ class D4RLWindowDataset(Dataset):
 
 
 if __name__ == "__main__":
-    # Report where the roof sits relative to the data, which is what decides
-    # whether the constraint binds. See problems/locomotion_spec.py.
+    # Report how often the data violates the height constraint.
     import argparse
 
     from problems.locomotion_spec import HORIZON, SPECS, height_residual

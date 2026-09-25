@@ -8,14 +8,9 @@ from typing import Tuple
 from cfm.models.mlp import MLP
 
 class SinusoidalPosEmb(nnx.Module):
-    """A basic positional embedding for timesteps t in [0, 1].
-
-    Composes sine and cosine waves at frequencies spaced logarithmically between
-    1 and 1000 Hz.
-    """
+    """Sinusoidal embedding of t in [0, 1], log-spaced frequencies 1-1000 Hz."""
 
     def __init__(self, dim: int):
-        """Create a position embedding of the given dimension."""
         assert dim > 2, "Positional embedding dimension must be greater than 2"
         assert dim % 2 == 0, "Positional embedding dimension must be even"
         max_frequency = 1000
@@ -24,14 +19,13 @@ class SinusoidalPosEmb(nnx.Module):
         self.freqs = jnp.power(max_frequency, exponent)
 
     def __call__(self, x: jax.Array) -> jax.Array:
-        """Apply the positional embedding to the input x."""
         emb = 2 * jnp.pi * x[:, None] * self.freqs[None, :]
         emb = jnp.concatenate((jnp.sin(emb), jnp.cos(emb)), axis=-1)
         return emb
 
 
 class FlowMLP(nnx.Module):
-    """A simple vector field xdot = v(x, t) based on a simple MLP backend."""
+    """MLP vector field xdot = v(x, t) on samples of shape ``data_shape``."""
 
     def __init__(
         self,
@@ -41,15 +35,6 @@ class FlowMLP(nnx.Module):
         *,
         rngs: nnx.Rngs,
     ):
-        """Create a flow MLP with the given dimensions.
-
-        Args:
-            data_shape: The shape of a single data sample (excluding batch),
-                e.g. (2,) for 2-D vectors or (28, 28, 1) for MNIST images.
-            time_embedding_size: The dimension of the time embedding.
-            hidden_sizes: A tuple specifying the size of each hidden layer.
-            rngs: Random keys for weight initialization.
-        """
         self.data_shape = data_shape
         self.time_embedding = SinusoidalPosEmb(time_embedding_size)
 
@@ -65,15 +50,6 @@ class FlowMLP(nnx.Module):
         )
 
     def __call__(self, x: jax.Array, t: jax.Array) -> jax.Array:
-        """Run a forward pass through the network.
-
-        Args:
-            x: The input to the network, shape ``(batch, *data_shape)``.
-            t: The denoising time step, in [0, 1], shape ``(batch,)``.
-
-        Returns:
-            The output of the network xdot = v(x, t), same shape as ``x``.
-        """
         batch = x.shape[0]
         x_flat = x.reshape(batch, -1)
         t_emb = self.time_embedding(t)

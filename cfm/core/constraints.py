@@ -1,13 +1,4 @@
-"""Constraints, and how to measure violating one.
-
-A constraint used to be just a bare function, with the question of whether it
-was an equality or an inequality answered by a hand-maintained table in
-``benchmark.py``, and the question of how to score a violation answered
-separately (and differently) in ``benchmark.py`` and ``plots.py``.
-
-Bundling the three together means a problem states its constraint once and
-the runner, the figures and the tests all agree by construction.
-"""
+"""Constraint definitions and violation metrics."""
 
 from dataclasses import dataclass
 from typing import Callable, Optional
@@ -25,12 +16,11 @@ class Constraint:
     """A constraint on generated samples.
 
     Attributes:
-        fn: Differentiable residual on a single *unnormalized* sample. May
-            return a scalar or a 1-D array.
-        kind: ``"equality"`` for ``fn(x) == 0``, ``"inequality"`` for
-            ``fn(x) <= 0``.
-        violation: Maps a single sample to a scalar violation magnitude.
-        name: Human-readable description, used in reports and figures.
+        fn: residual on a single unnormalized sample, scalar or 1-D.
+        kind: ``"equality"`` (``fn(x) = 0``) or ``"inequality"``
+            (``fn(x) <= 0``).
+        violation: scalar violation of a single sample.
+        name: label for reports and figures.
     """
 
     fn: Callable[[jax.Array], jax.Array]
@@ -52,11 +42,7 @@ def equality(
     name: str = "",
     violation: Optional[Callable] = None,
 ) -> Constraint:
-    """An equality constraint ``fn(x) = 0``.
-
-    Violation is the largest absolute residual, which for a scalar residual
-    is just its magnitude.
-    """
+    """Equality constraint ``fn(x) = 0``, scored by max absolute residual."""
     if violation is None:
         def violation(x):
             return jnp.max(jnp.abs(jnp.atleast_1d(fn(x))))
@@ -69,11 +55,7 @@ def inequality(
     name: str = "",
     violation: Optional[Callable] = None,
 ) -> Constraint:
-    """An inequality constraint ``fn(x) <= 0``.
-
-    Violation is the amount by which the constraint is exceeded, and is zero
-    for any feasible sample.
-    """
+    """Inequality constraint ``fn(x) <= 0``, scored by max positive part."""
     if violation is None:
         def violation(x):
             return jnp.max(jnp.maximum(jnp.atleast_1d(fn(x)), 0.0))

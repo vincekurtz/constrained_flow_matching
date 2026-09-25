@@ -1,4 +1,4 @@
-"""The Gauss-Newton projection that four call sites used to each own."""
+"""Gauss-Newton projection."""
 
 import jax
 import jax.numpy as jnp
@@ -22,18 +22,13 @@ def right_half(x):
 
 
 def test_converges_onto_the_manifold():
-    """Iterating drives a generic point onto ||x|| = 1."""
     x = jnp.array([2.5, -1.7])
     out = gauss_newton_project(circle, x, num_iters=10)
     assert float(jnp.abs(circle(out))[0]) < 1e-6
 
 
 def test_single_step_overshoots_near_the_origin():
-    """Why the iteration exists: one linearized step is not enough.
-
-    Projecting a point near the origin onto the circle blows up, which is
-    what the multi-iteration loop is there to absorb.
-    """
+    """One linearized step is not enough near the origin."""
     x = jnp.array([0.05, 0.0])
     one = gauss_newton_project(circle, x, num_iters=1)
     many = gauss_newton_project(circle, x, num_iters=25)
@@ -47,14 +42,12 @@ def test_zero_iterations_is_a_no_op():
 
 
 def test_idempotent_on_the_manifold():
-    """A point already satisfying the constraint barely moves."""
     x = jnp.array([1.0, 0.0])
     out = gauss_newton_project(circle, x, num_iters=5)
     assert jnp.allclose(out, x, atol=1e-6)
 
 
 def test_active_set_leaves_feasible_points_untouched():
-    """The masked form must not move an already-feasible sample."""
     x = jnp.array([2.0, 1.0])  # right_half(x) = -2 < 0, satisfied
     out = gauss_newton_project(right_half, x, num_iters=5, active_only=True)
     assert jnp.allclose(out, x, atol=1e-12)
@@ -65,12 +58,11 @@ def test_active_set_lands_on_the_boundary():
     x = jnp.array([-1.5, 0.4])  # right_half(x) = 1.5 > 0, violated
     out = gauss_newton_project(right_half, x, num_iters=5, active_only=True)
     assert float(right_half(out)[0]) == pytest.approx(0.0, abs=1e-6)
-    # Only the violated coordinate moves.
     assert float(out[1]) == pytest.approx(float(x[1]), abs=1e-9)
 
 
 def test_unmasked_form_moves_feasible_points():
-    """Contrast: the equality form pulls onto the surface from either side."""
+    """The equality form pulls onto the surface from either side."""
     x = jnp.array([2.0, 1.0])
     out = gauss_newton_project(right_half, x, num_iters=5, active_only=False)
     assert not jnp.allclose(out, x, atol=1e-6)
@@ -86,7 +78,6 @@ def test_step_matches_the_closed_form():
 
 
 def test_project_batch_preserves_shape():
-    """Batches of non-flat samples come back in their original shape."""
     x = jax.random.normal(jax.random.key(0), (5, 3, 2))
 
     def residual(flat):
@@ -104,7 +95,6 @@ def test_project_batch_zero_iters_is_a_no_op():
 
 
 def test_projection_is_jittable():
-    """The projection runs inside jit, as the generators use it."""
     fn = jax.jit(lambda x: gauss_newton_project(circle, x, num_iters=5))
     out = fn(jnp.array([2.0, 2.0]))
     assert float(jnp.abs(circle(out))[0]) < 1e-6

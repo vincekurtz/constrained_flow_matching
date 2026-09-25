@@ -1,10 +1,6 @@
-"""Forward-pass behavior of the two model architectures.
+"""Forward-pass behavior of the model architectures.
 
-Building and running a model costs an XLA compilation, and for the UNet that
-dominates the whole suite. So each architecture is built once per session at
-one input shape, and every assertion below reuses it: sensitivity checks put
-the two inputs they want to compare in a single batch rather than making a
-second call at a new shape.
+Each model is built once at one input shape to avoid recompilation.
 """
 
 import jax.numpy as jnp
@@ -23,7 +19,6 @@ BATCH = 4
 
 
 def test_sinusoidal_output_shape():
-    """Output shape is (batch, dim) for a batch of scalar time values."""
     out = SinusoidalPosEmb(dim=16)(jnp.linspace(0, 1, 8))
     assert out.shape == (8, 16)
 
@@ -36,7 +31,6 @@ def test_sinusoidal_values_are_bounded_and_finite():
 
 
 def test_sinusoidal_distinguishes_times():
-    """Different time values produce different embeddings."""
     out = SinusoidalPosEmb(dim=16)(jnp.array([0.0, 1.0]))
     assert not jnp.allclose(out[0], out[1])
 
@@ -63,13 +57,11 @@ def test_flowmlp_output_matches_input_shape(mlp):
 
 
 def test_flowmlp_is_sensitive_to_time(mlp):
-    """The same x at different t must give different velocities."""
     y = mlp(jnp.ones((BATCH, 4)), jnp.linspace(0, 1, BATCH))
     assert not jnp.allclose(y[0], y[-1])
 
 
 def test_flowmlp_is_sensitive_to_input(mlp):
-    """Different x at the same t must give different velocities."""
     x = jnp.stack([jnp.zeros(4), jnp.ones(4), jnp.full((4,), 2.0),
                    jnp.full((4,), 3.0)])
     y = mlp(x, jnp.full((BATCH,), 0.5))
@@ -91,9 +83,6 @@ def test_flowmlp_handles_image_shaped_data():
 
 # ---------------------------------------------------------------------------
 # FlowUNet
-#
-# Three resolution levels, matching the shape of the MNIST configuration in
-# problems/mnist.py, but at the smallest size that still downsamples twice.
 # ---------------------------------------------------------------------------
 
 
@@ -108,7 +97,6 @@ def unet():
 
 
 def test_flowunet_output_matches_input_shape(unet):
-    """Down- and up-sampling must land back on the input resolution."""
     x = jnp.ones((BATCH, 8, 8, 1))
     y = unet(x, jnp.linspace(0, 1, BATCH))
     assert y.shape == x.shape

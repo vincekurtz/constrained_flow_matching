@@ -1,13 +1,8 @@
-"""Record pre-refactor benchmark numbers into ``experiments/baseline.json``.
-
-Phase 0 of the refactor: every later phase asserts that violation is no worse
-and wall-clock is no more than 5% slower than what this captures. Run once,
-on the machine the comparison will be made on, and commit the result.
+"""Record benchmark numbers into ``experiments/baseline.json``.
 
     uv run python -m experiments.record_baseline
 
-Timings are machine-specific, so a baseline recorded elsewhere is only good
-for the violation comparison.
+Timings are machine-specific; record on the machine used for comparison.
 """
 
 import json
@@ -19,8 +14,6 @@ from pathlib import Path
 RAW_DIR = Path("experiments/baseline_raw")
 OUT = Path("experiments/baseline.json")
 
-# Mirrors benchmark.SUPPORTED_METHODS. Kept explicit here so the baseline
-# records exactly what was run, even as the registry replaces that table.
 CASES = [
     ("star", "ours"), ("star", "pigdm"), ("star", "pcfm"),
     ("mnist", "ours"), ("mnist", "pigdm"), ("mnist", "pcfm"),
@@ -50,8 +43,6 @@ def main():
             "--num-samples", str(NUM_SAMPLES),
             "--out", str(raw),
         ]
-        # The obstacle scene defaults differ between benchmark.py and the
-        # example; benchmark.py's defaults are what the table uses.
         proc = subprocess.run(cmd, capture_output=True, text=True)
         if proc.returncode != 0:
             print(proc.stdout[-2000:])

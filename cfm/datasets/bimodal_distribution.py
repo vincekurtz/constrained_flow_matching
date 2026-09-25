@@ -11,7 +11,6 @@ class BimodalDataset(Dataset):
         mean2=[5.0, -5.0],
         std=1.0,
     ):
-        """Create the dataset by sampling from a mixture of two Gaussians."""
         super().__init__()
         self.num_samples = num_samples
         self.mean1 = torch.tensor(mean1)
@@ -20,7 +19,6 @@ class BimodalDataset(Dataset):
         self.data = self._generate_data()
 
     def _generate_data(self) -> torch.Tensor:
-        """Generate samples from a mixture of Gaussians."""
         torch.random.manual_seed(0)
         mode1_samples = (
             torch.randn(self.num_samples // 2, 2) * self.std + self.mean1
@@ -37,7 +35,6 @@ class BimodalDataset(Dataset):
         return self.data[idx]
 
 if __name__ == "__main__":
-    # Make a quick plot to visualize the dat
     import matplotlib.pyplot as plt
 
     dataset = BimodalDataset(num_samples=1000)

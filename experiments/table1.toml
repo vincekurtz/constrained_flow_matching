@@ -5,17 +5,11 @@
 #   uv run -m cfm.cli sweep experiments/table1.toml
 #   uv run -m cfm.cli table --format markdown
 #
-# Cases already recorded under results/ are skipped, so an interrupted sweep
-# resumes. Pass --force to re-run them.
+# Cases already in results/ are skipped; pass --force to re-run them.
 
 num_samples = 20
 
-# Rows. A variant is a registered method with the gains that define its row
-# pinned, so the same method can appear twice: LDF as the flow alone, and LDF
-# followed by the Gauss-Newton projection that polishes off whatever
-# violation the finite-time flow leaves behind. Pinning the iteration count
-# here rather than inheriting it from the problem registry keeps the two rows
-# meaning the same thing on every example.
+# Rows: LDF with and without the final Gauss-Newton projection.
 [[variants]]
 name = "ldf"
 method = "ldf"
@@ -28,17 +22,14 @@ method = "ldf"
 label = "LDF + projection"
 gains = { num_projection_iters = 2 }
 
-# The ablation is pinned unprojected too, so it is a comparison against the
-# `ldf` row that isolates the dual dynamics rather than the final polish.
+# Unprojected, to compare against the `ldf` row.
 [[variants]]
 name = "penalty"
 method = "penalty"
 label = "Penalty only"
 gains = { num_projection_iters = 0 }
 
-# ---------------------------------------------------------------------------
-# The 2-D and MNIST rows, at dt = 0.01.
-# ---------------------------------------------------------------------------
+# --- 2-D and MNIST, dt = 0.01 ---
 
 [[block]]
 problems = ["star", "mnist"]
@@ -46,11 +37,7 @@ problem_label = { star = "Star (eq.)" }
 methods = ["pigdm", "pcfm", "penalty", "ldf", "ldf_projected"]
 steps = [100]
 
-# Per-scenario penalty weights for the dual flow and its ablation. These were
-# shell variables inside make_benchmark_table.sh, invisible to the figures.
-# They are aimed at the method rather than the row, so both LDF rows and the
-# ablation share a weight and the comparison isolates the dual dynamics and
-# the projection instead of confounding them with a different gain.
+# Shared by both LDF rows and the penalty ablation.
 [[block.gains]]
 method = ["ldf", "penalty"]
 problem = "star"
@@ -61,16 +48,7 @@ method = ["ldf", "penalty"]
 problem = "mnist"
 penalty_weight = 20.0
 
-# ---------------------------------------------------------------------------
-# The star again, at the same resolution, but with the right-half-plane
-# inequality in place of the unit-norm equality. This is the smallest example
-# in the table where the CBF filter applies, so it is where the cost of the
-# safety-filter QP can be read against the dual flow without the obstacle
-# scene's hundreds of barrier rows in the way. The penalty-only ablation runs
-# here too, through the same closed-form slack flow as LDF with the
-# multipliers frozen at zero. PCFM and PiGDM are dropped from the block
-# automatically, being equality-only.
-# ---------------------------------------------------------------------------
+# --- Star with a right-half-plane inequality, dt = 0.01 ---
 
 [[block]]
 problems = ["star"]
@@ -81,21 +59,12 @@ steps = [100]
 [block.problem_options.star]
 constraint = "right_half"
 
-# The same weight the equality rows use, so the two star blocks differ in the
-# constraint and nothing else. The ablation shares it, as it does on the
-# equality rows, so it isolates the dual dynamics.
+# Same weight as the equality star.
 [[block.gains]]
 method = ["ldf", "penalty"]
 penalty_weight = 5.0
 
-# ---------------------------------------------------------------------------
-# Obstacle avoidance, at dt = 0.002. Two scenes, sparse and crowded, so the
-# table shows what happens as the constraints pile up. These are inequality
-# constraints, so PCFM and PiGDM are dropped from the block automatically and
-# the CBF filter, which handles nothing else, joins it. The penalty-only
-# ablation runs here and on the locomotion rows too, at the penalty weight
-# the problem registry gives LDF, so it isolates the dual dynamics.
-# ---------------------------------------------------------------------------
+# --- Obstacle avoidance, sparse and crowded scenes, dt = 0.002 ---
 
 [[block]]
 problems = ["obstacles"]
@@ -107,10 +76,7 @@ steps = [500]
 num_obstacles = 2
 scene_seed = 0
 
-# The obstacles problem pins the exact QP, which at dt = 0.002 hits mutually
-# infeasible barrier conditions and fails outright, leaving nothing to time.
-# The elastic relaxation is what the comparison figure in plots.py runs at
-# this step size for the same reason.
+# The exact QP becomes infeasible at dt = 0.002.
 [[block.gains]]
 method = "cbf"
 qp = "elastic"
@@ -129,13 +95,7 @@ scene_seed = 0
 method = "cbf"
 qp = "elastic"
 
-# ---------------------------------------------------------------------------
-# D4RL locomotion, at dt = 0.01. The same roof z + phi*vz <= h_r the example
-# in the README enforces, on both environments, so the table says what the
-# CBF filter and the dual flow each cost on a 32-step trajectory window with
-# one barrier row per timestep. Inequalities again, so PCFM and PiGDM drop
-# out and the CBF filter is in.
-# ---------------------------------------------------------------------------
+# --- D4RL locomotion with a roof constraint z + phi*vz <= h_r, dt = 0.01 ---
 
 [[block]]
 problems = ["walker2d", "hopper"]
@@ -143,11 +103,7 @@ problem_label = { walker2d = "Walker2D", hopper = "Hopper" }
 methods = ["cbf", "penalty", "ldf", "ldf_projected"]
 steps = [100]
 
-# Pinned rather than inherited, to say in the config what the rows ran with.
-# The rows of the roof residual have disjoint support, so the barrier
-# conditions are feasible together on paper; in practice the exact solve
-# still fails part-way through a Hopper sweep, and the relaxation is what
-# the locomotion registry already pins for that reason.
+# The exact QP fails part-way through a Hopper sweep.
 [[block.gains]]
 method = "cbf"
 qp = "elastic"

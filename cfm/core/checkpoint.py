@@ -1,14 +1,4 @@
-"""Saving and loading trained models.
-
-Every example used to open-code this pair of operations, so the same six
-lines appeared roughly eight times across ``examples/``.
-
-Checkpoints are cloudpickled, which stores classes *by module path*. Models
-trained before the ``cfm/`` package existed therefore reference
-``architectures.flow`` and friends, so ``load`` remaps those paths onto their
-new homes rather than making every previously trained model unloadable --
-retraining the MNIST UNet costs about half an hour on a GPU.
-"""
+"""Saving and loading trained models."""
 
 import pickle
 from pathlib import Path
@@ -19,8 +9,7 @@ from flax import nnx
 
 from cfm.models.normalizer import Normalizer
 
-# Old module path -> new module path, for checkpoints written before the
-# package move. Safe to drop once no pre-refactor checkpoints remain.
+# Remap old module paths so older cloudpickled checkpoints still load.
 LEGACY_MODULES = {
     "architectures": "cfm.models",
     "datasets": "cfm.datasets",
@@ -28,7 +17,7 @@ LEGACY_MODULES = {
 
 
 class _LegacyUnpickler(pickle.Unpickler):
-    """Unpickler that redirects pre-``cfm`` module paths."""
+    """Unpickler that applies ``LEGACY_MODULES``."""
 
     def find_class(self, module: str, name: str):
         root = module.split(".", 1)[0]
@@ -46,12 +35,7 @@ def save(path, model: nnx.Module, normalizer: Normalizer) -> None:
 
 
 def load(path) -> Tuple[nnx.Module, Normalizer]:
-    """Read a trained model and its normalizer from ``path``.
-
-    Returns:
-        model: The trained flow model.
-        normalizer: The normalizer fitted during training.
-    """
+    """Read a trained model and its normalizer from ``path``."""
     path = Path(path)
     if not path.exists():
         raise FileNotFoundError(

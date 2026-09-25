@@ -1,13 +1,4 @@
-"""The registry of example problems.
-
-A problem is everything needed to train a model and then constrain it: the
-dataset, the architecture, the training schedule, the constraint, how to draw
-the result, and any gains that differ from a method's defaults.
-
-Adding an example used to mean copying a ~200-line argparse script. It now
-means adding one :class:`Problem` here; the CLI, the benchmark, the sweep and
-the tests all read this registry.
-"""
+"""Registry of example problems."""
 
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, Optional
@@ -17,18 +8,11 @@ from cfm.core.constraints import Constraint
 
 @dataclass(frozen=True)
 class TrainConfig:
-    """Hyperparameters for one problem's training run.
+    """Training hyperparameters.
 
     Attributes:
-        num_epochs: How many passes over the dataset.
-        batch_size: Samples per optimizer step.
-        learning_rate: Peak learning rate.
-        seed: Seed for the noise and time samples drawn during training.
-        print_frequency: Epochs between progress lines.
-        schedule: Learning-rate schedule, one of
-            ``cfm.training.SCHEDULES``.
-        ema_decay: Decay of a parameter moving average, or None to keep the
-            last iterate.
+        schedule: Learning-rate schedule, one of ``cfm.training.SCHEDULES``.
+        ema_decay: Parameter EMA decay, or None to keep the last iterate.
     """
 
     num_epochs: int
@@ -45,21 +29,11 @@ class Problem:
     """One example: a dataset, a model, and optionally a constraint.
 
     Attributes:
-        name: Key used on the command line and in result files.
-        label: Human-readable name for tables and figures.
-        make_dataset: Builds the training dataset.
-        make_model: Builds an untrained model.
-        train: Training schedule.
-        make_constraint: Builds the constraint, given any problem-specific
-            options (e.g. the obstacle scene's seed). None for problems that
-            only demonstrate unconstrained generation.
-        plot: ``(problem, samples, constraint, **opts) -> None``. Draws the
-            result.
+        make_constraint: Builds the constraint from problem-specific options.
+            None for unconstrained problems.
+        plot: ``(problem, samples, constraint, **opts) -> None``.
         method_gains: Per-method gain overrides, keyed by method name.
-        options: Extra CLI options this problem accepts, as
-            ``{flag: {argparse kwargs}}``.
-        default_num_samples: How many samples to draw when generating.
-        checkpoint: Where the trained model lives.
+        options: Extra CLI options, as ``{flag: {argparse kwargs}}``.
     """
 
     name: str
@@ -88,8 +62,7 @@ class Problem:
 
 
 def _registry() -> Dict[str, Problem]:
-    # Imported lazily and inside the function so that importing one problem
-    # does not drag in every dataset (MNIST in particular touches the disk).
+    # Lazy, so importing one problem doesn't import every dataset.
     from problems import (
         bimodal,
         locomotion,
@@ -123,7 +96,7 @@ def all_problems() -> Dict[str, Problem]:
 
 
 def get(name: str) -> Problem:
-    """Look up a problem by name, with a helpful error for typos."""
+    """Look up a problem by name."""
     problems = all_problems()
     try:
         return problems[name]

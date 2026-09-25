@@ -1,28 +1,12 @@
-"""The D4RL locomotion tasks and their roof constraint.
+"""D4RL Walker2D/Hopper specs and the SafeFlowMatcher roof constraint.
 
-Two examples from the SafeFlowMatcher paper (arXiv 2509.24243), Walker2D and
-Hopper. A flow model is trained *unconditionally* on windows of the
-medium-expert demonstrations, and at inference time a single speed-dependent
-ceiling is imposed at every timestep of the window:
+    h(x)[t] = z_t + phi * vz_t - h_r <= 0
 
-    h(x)[t] = z_t + phi * vz_t - h_r <= 0,
+with torso height z and vertical velocity vz (SafeFlowMatcher App. D.2).
+h_r and phi come from SafeDiffuser (arXiv 2306.00148). Unlike SafeDiffuser,
+the residual is in raw units, so the numbers are not directly comparable.
 
-where ``z`` is the torso height, ``vz`` its vertical velocity, ``h_r`` the
-roof and ``phi`` a lookahead weight. That is the barrier of SafeFlowMatcher
-Appendix D.2. The paper states the form but no numbers, so ``h_r`` and ``phi``
-come from SafeDiffuser (arXiv 2306.00148), whose locomotion setup
-SafeFlowMatcher says it reuses: ``invariance_cpx`` and
-``invariance_hopper_cpx`` in its ``diffuser/models/diffusion.py``.
-
-One deliberate difference from SafeDiffuser: they convert ``h_r`` and ``z``
-into normalized units but then apply ``phi`` to an already-normalized ``vz``,
-which mixes units. We write the whole residual in raw metres and metres per
-second -- ``cfm.core.solve.wrap_constraint`` unnormalizes before calling it --
-so our numbers are not directly comparable to theirs.
-
-A sample is a trajectory window in the Diffuser layout: ``(horizon,
-action_dim + obs_dim)``, actions first, then the observation. That is why the
-column a state lives in is ``action_dim`` plus its index in the observation.
+Samples are ``(horizon, action_dim + obs_dim)`` windows, actions first.
 """
 
 from dataclasses import dataclass
@@ -31,27 +15,17 @@ import jax
 
 from cfm.core.constraints import Constraint, inequality
 
-# Window length, matching SafeFlowMatcher's own config/locomotion.py. The
-# H=600 quoted in the paper's tables would also fit the temporal U-Net the
-# problem trains, but costs proportionally more to train and to integrate.
-# Any multiple of four works; see cfm/models/temporal_unet.py.
+# Matches SafeFlowMatcher's config/locomotion.py. Must be a multiple of four.
 HORIZON = 32
 
 
 @dataclass(frozen=True)
 class LocomotionSpec:
-    """Everything that differs between the Walker2D and Hopper examples.
+    """Per-environment settings.
 
     Attributes:
-        name: Problem name, used on the command line.
-        label: Human-readable name for figures.
-        env: D4RL environment id, for reference.
-        filename: Name of the dataset file on the mirror.
-        action_dim: Width of the action block, which comes first in a sample.
-        obs_dim: Width of the observation block.
-        z_obs_index: Index of the torso height *within the observation*.
-        vz_obs_index: Index of the torso vertical velocity within the
-            observation.
+        z_obs_index: Torso height index within the observation.
+        vz_obs_index: Torso vertical velocity index within the observation.
         height_limit: Roof ``h_r``, in metres.
         phi: Weight on the vertical velocity, in seconds.
     """
@@ -69,12 +43,11 @@ class LocomotionSpec:
 
     @property
     def transition_dim(self) -> int:
-        """Width of one timestep of a sample."""
-        return self.action_dim + self.obs_dim
+            return self.action_dim + self.obs_dim
 
     @property
     def z_index(self) -> int:
-        """Column of the torso height in a sample, actions included."""
+        """Column of the torso height in a sample."""
         return self.action_dim + self.z_obs_index
 
     @property
@@ -83,9 +56,7 @@ class LocomotionSpec:
         return self.action_dim + self.vz_obs_index
 
 
-# Observation layouts are Gymnasium's, with the x-position excluded: obs[0] is
-# rootz for both, obs[9] is the Walker2D torso z-velocity and obs[6] the
-# Hopper one.
+# Gymnasium observation layouts (x-position excluded).
 WALKER2D = LocomotionSpec(
     name="walker2d",
     label="Walker2D",
@@ -122,26 +93,12 @@ def height_residual(
     height_limit: float,
     phi: float,
 ) -> jax.Array:
-    """The roof residual ``z + phi * vz - h_r``, one entry per timestep.
-
-    Indexed on the last axis, so this serves both the per-sample constraint
-    and batched reporting.
-
-    Args:
-        x: Trajectory windows, shape ``(..., horizon, transition_dim)``.
-        z_index: Column holding the torso height.
-        vz_index: Column holding the vertical velocity.
-        height_limit: Roof ``h_r``.
-        phi: Weight on the vertical velocity.
-
-    Returns:
-        Residuals of shape ``(..., horizon)``, non-positive where safe.
-    """
+    """Roof residual ``z + phi * vz - h_r``, shape ``(..., horizon)``."""
     return x[..., z_index] + phi * x[..., vz_index] - height_limit
 
 
 def resolve(spec: LocomotionSpec, height_limit=None, phi=None):
-    """Fill in a spec's defaults for any roof parameter left as None."""
+    """Fill in spec defaults for roof parameters left as None."""
     limit = spec.height_limit if height_limit is None else float(height_limit)
     weight = spec.phi if phi is None else float(phi)
     return limit, weight
@@ -160,11 +117,7 @@ def make_constraint_fn(spec: LocomotionSpec, height_limit=None, phi=None):
 def make_constraint(
     spec: LocomotionSpec, height_limit=None, phi=None
 ) -> Constraint:
-    """The roof as an inequality constraint, one row per timestep.
-
-    Pure: no disk, no model, no download. The problem registry builds this on
-    every CLI invocation, so it has to stay that way.
-    """
+    """The roof as an inequality constraint, one row per timestep."""
     limit, weight = resolve(spec, height_limit, phi)
     return inequality(
         make_constraint_fn(spec, limit, weight),
@@ -175,9 +128,7 @@ def make_constraint(
 def barrier(
     spec: LocomotionSpec, x: jax.Array, height_limit=None, phi=None
 ) -> jax.Array:
-    """The CBF-convention barrier ``h_r - z - phi * vz``, non-negative when
-    safe. The negation of the residual, kept for figures that follow the
-    paper's sign convention."""
+    """CBF-convention barrier ``h_r - z - phi * vz``, >= 0 when safe."""
     limit, weight = resolve(spec, height_limit, phi)
     return -height_residual(x, spec.z_index, spec.vz_index, limit, weight)
 

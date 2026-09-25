@@ -1,13 +1,4 @@
-"""Behavior specific to individual baselines.
-
-The registry contract in ``test_methods.py`` covers what every method must
-do; these cover the claims each baseline makes for itself.
-
-Results go through the session-wide ``run_once`` cache, so a configuration
-several tests need -- each baseline's default settings, most of all -- is
-generated once and shared. Tests stay one-claim-each; only the compilation
-is pooled.
-"""
+"""Behavior specific to individual baselines."""
 
 import jax.numpy as jnp
 import pytest
@@ -32,7 +23,7 @@ def pcfm_default(run_once, model, normalizer, circle):
 
 
 def test_pcfm_final_projection_drives_residual_to_zero(pcfm_default, circle):
-    """PCFM's whole point: the constraint holds to numerical precision."""
+    """The constraint holds to numerical precision."""
     assert float(jnp.max(circle.violations(pcfm_default.x))) < 1e-5
 
 
@@ -80,10 +71,8 @@ def test_pigdm_guidance_scale_zero_ignores_the_constraint(
     pigdm_unguided, baseline
 ):
     """With no guidance PiGDM must reduce to the unconstrained flow."""
-    # The unconstrained flow stops one step short of t = 1 by design, so
-    # compare at the last time both of them record. PiGDM still evaluates the
-    # Tweedie estimate and its VJP before scaling the correction by zero, so
-    # the two paths differ by float32 accumulation rather than exactly.
+    # The unconstrained flow stops one step short of t = 1. Not exact because
+    # PiGDM still computes the (zero-scaled) correction.
     assert jnp.allclose(pigdm_unguided.xs[-2], baseline.xs[-1], atol=1e-3)
 
 
@@ -105,15 +94,7 @@ def test_pigdm_stronger_guidance_tightens_the_constraint(
 def test_cbf_exact_qp_fails_loudly_with_an_actionable_message(
     model, normalizer, feasible
 ):
-    """``qp="exact"`` raises rather than returning a bad correction.
-
-    The exact interior-point solve does not reliably converge on this flow --
-    even for a constraint that is satisfied everywhere -- which is why
-    ``benchmark`` and the sweep default to the elastic relaxation while
-    ``problems/obstacles.py`` keeps ``exact`` to reproduce the paper. The
-    contract being pinned here is that the failure is a clear error naming
-    the workaround, not a silently wrong answer.
-    """
+    """``qp="exact"`` fails to converge here and should say to use elastic."""
     with pytest.raises(Exception, match='qp="elastic"'):
         cbf.generate(
             model, normalizer, feasible, dt=DT, qp="exact", **COMMON
@@ -158,7 +139,7 @@ def test_cbf_rejects_an_unknown_qp_mode(model, normalizer, right_half):
 def test_cbf_terminal_filter_tightens_the_result(
     run_once, model, normalizer, right_half
 ):
-    """The terminal filter mops up whatever violation the numerics leave."""
+    """The terminal filter reduces residual violation."""
     filtered = run_once("cbf:filtered", lambda: cbf.generate(
         model, normalizer, right_half, dt=DT, qp="elastic", **COMMON
     ))

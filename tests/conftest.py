@@ -1,22 +1,8 @@
-"""Shared fixtures for the test suite.
+"""Shared fixtures.
 
-# Why the fixtures are session-scoped
-
-Every ``generate`` call costs roughly a second of XLA compilation, and that
-cost is flat: it does not care how many integration steps or samples the call
-makes. The suite's runtime is therefore set by the number of *distinct*
-generator calls it makes, not by their size. Shrinking ``dt`` or
-``NUM_SAMPLES`` buys nothing; not calling the generator twice for the same
-result buys a second each time.
-
-So the model, normalizer and constraints are built once per session and the
-``run_once`` cache lets several tests share one generator result. Fixtures
-here are treated as read-only: nothing in the suite trains or mutates them.
-
-For the same reason the suite keeps XLA's compiled kernels on disk between
-runs, which roughly halves a re-run. The cache is keyed on the HLO, the
-backend and the JAX version, so it invalidates itself when the code changes;
-delete CACHE_DIR if you ever want to force a cold run.
+Runtime is dominated by XLA compilation per distinct ``generate`` call, so
+fixtures are session-scoped (and read-only) and ``run_once`` shares results
+across tests. Compiled kernels are cached on disk in CACHE_DIR.
 """
 
 import jax
@@ -31,14 +17,11 @@ from cfm.models.normalizer import Normalizer
 CACHE_DIR = ".jax_cache"
 
 jax.config.update("jax_compilation_cache_dir", CACHE_DIR)
-# The defaults skip anything that compiles in under a second, which is most
-# of what this suite builds.
+# The defaults skip anything that compiles in under a second.
 jax.config.update("jax_persistent_cache_min_compile_time_secs", 0.0)
 jax.config.update("jax_persistent_cache_min_entry_size_bytes", 0)
 
-# An untrained model has an arbitrary vector field, so the constrained flows
-# go unstable under the penalty weights the real examples use. These are the
-# strongest settings that stay finite here.
+# The untrained model goes unstable under the examples' penalty weights.
 PENALTY_WEIGHT = 1.5
 DT = 0.02
 NUM_SAMPLES = 6
@@ -94,11 +77,9 @@ def rng():
 
 @pytest.fixture(scope="session")
 def run_once():
-    """Memoize generator results across tests, keyed by an explicit label.
+    """Memoize generator results across tests, keyed by label.
 
-    Use it when a test only *inspects* a result that another test also needs.
-    Never use it where repeating the call is the point of the test -- a
-    determinism check has to actually run the generator twice.
+    Don't use it where repeating the call is the point (e.g. determinism).
     """
     cache = {}
 
@@ -112,10 +93,7 @@ def run_once():
 
 @pytest.fixture(scope="session")
 def baseline(run_once, model, normalizer):
-    """The unconstrained flow at test settings.
-
-    Several tests compare against it, so it is generated once and shared.
-    """
+    """The unconstrained flow at test settings."""
     from cfm.methods.ldf import generate_unconstrained
 
     return run_once(

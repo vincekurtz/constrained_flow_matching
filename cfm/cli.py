@@ -1,9 +1,5 @@
 """Command line entry point.
 
-Replaces the seven per-example argparse scripts that used to live in
-``examples/``. Because it reads the problem and method registries, adding an
-example or a baseline makes it appear here automatically.
-
     uv run -m cfm.cli train    --problem star
     uv run -m cfm.cli generate --problem star
     uv run -m cfm.cli generate --problem star --method ldf
@@ -26,9 +22,7 @@ from cfm import methods, sweep, training
 from cfm.core import checkpoint
 from cfm.methods.ldf import generate_unconstrained
 
-# Hyperparameters that any method may accept. Each is passed through to the
-# method only when the user actually set it, so registry defaults stay in
-# charge otherwise.
+# Passed to the method only when set, so registry defaults apply otherwise.
 GENERATION_FLAGS = {
     "--dt": {"type": float, "help": "ODE step size."},
     "--num-steps": {"type": int, "help": "Fixed step count (PCFM)."},
@@ -87,16 +81,12 @@ def _generation_overrides(args):
 
 
 def _resolve(problem, method, args):
-    """Merge problem gains with explicit CLI overrides.
-
-    Precedence is registry defaults, then the problem's per-method gains,
-    then whatever the user typed.
-    """
+    """Merge registry defaults, problem gains, then CLI overrides."""
     cfg = problem.gains_for(method.name)
     cfg.update({
         k: v for k, v in _generation_overrides(args).items() if v is not None
     })
-    # PCFM steps a fixed grid rather than integrating, so dt means nothing.
+    # PCFM steps a fixed grid, so it takes num_steps rather than dt.
     if method.name not in methods.USES_DT:
         cfg.pop("dt", None)
     else:
@@ -275,11 +265,7 @@ def cmd_table(args):
 
 
 def cmd_list(args):
-    """Show what is registered, and which methods fit which problem.
-
-    The compatibility table used to be a hand-maintained dict in
-    ``benchmark.py``; here it is derived from each constraint's kind.
-    """
+    """Show registered methods and problems, and which methods fit which."""
     del args
     print("Methods")
     for m in methods.METHODS.values():
@@ -371,8 +357,7 @@ def build_parser():
     p_list = sub.add_parser("list", help="List registered methods/problems.")
     p_list.set_defaults(func=cmd_list)
 
-    # Generation hyperparameters and per-problem options apply to both
-    # generate and benchmark. Defaults are None so "unset" is detectable.
+    # Default None so unset flags can be told apart.
     for p in (p_gen, p_bench):
         for flag, kwargs in GENERATION_FLAGS.items():
             p.add_argument(flag, default=None, **kwargs)
@@ -384,9 +369,7 @@ def main(argv=None):
     argv = sys.argv[1:] if argv is None else argv
     parser, needs_problem_opts = build_parser()
 
-    # A problem may declare its own flags (--scene-seed, --constraint, ...).
-    # They are only meaningful once we know which problem was chosen, so do a
-    # permissive first pass, then add them and parse for real.
+    # Problem-specific flags depend on --problem, so parse twice.
     known, _ = parser.parse_known_args(argv)
     name = getattr(known, "problem", None)
     if name in problems.all_problems():

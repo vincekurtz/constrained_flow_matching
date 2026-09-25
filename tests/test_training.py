@@ -63,7 +63,6 @@ def test_train_step_updates_parameters(model, optimizer, key):
     """train_step modifies model parameters in-place."""
     batch = jax.random.normal(key, (5, 4))
 
-    # Capture parameter values before the step
     params_before = jax.tree.map(lambda x: x.copy(), nnx.state(model))
 
     train_step(model, optimizer, batch, key)
@@ -92,7 +91,6 @@ def test_train_step_reduces_loss_over_iterations(model, optimizer, key):
 
 
 def test_full_training():
-    """Test the full training loop with a simple example."""
     dataset = BimodalDataset(num_samples=64)
     model = FlowMLP(
         data_shape=(2,),
@@ -123,10 +121,7 @@ def test_full_training():
     )
     assert any_changed, "Model parameters were not updated after training"
 
-    # Normalizer should have valid stats after training
     assert isinstance(normalizer, Normalizer)
-
-    # Normalizer stats should roughly match the data
     raw_data = jnp.array(dataset.data)
     normalized_data = normalizer.normalize(raw_data)
     assert jnp.allclose(
@@ -178,7 +173,6 @@ def test_ema_update_moves_toward_the_new_parameters():
 
 
 def test_training_with_ema_returns_the_average_not_the_last_iterate():
-    """The returned weights must differ from the ones the last step left."""
     dataset = BimodalDataset(num_samples=64)
 
     def run(ema_decay):

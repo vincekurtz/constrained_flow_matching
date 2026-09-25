@@ -3,10 +3,7 @@ from torch.utils.data import Dataset
 
 
 class SpiralDataset(Dataset):
-    """A simple spiral-shaped dataset in 2D.
-
-    This is a classic flow matching/diffusion example.
-    """
+    """Points on a 2D spiral."""
 
     def __init__(self, num_samples: int = 1024, scale: float = 1.0):
         super().__init__()
@@ -30,7 +27,6 @@ class SpiralDataset(Dataset):
 
 
 if __name__ == "__main__":
-    # Make a quick plot to visualize the dataset
     import matplotlib.pyplot as plt
 
     dataset = SpiralDataset(num_samples=1024)

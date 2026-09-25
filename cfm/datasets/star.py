@@ -3,15 +3,11 @@ from torch.utils.data import Dataset
 
 
 class StarDataset(Dataset):
-    """A simple manifold-based dataset: all points lie on a smooth 2D curve.
+    """Points on a smooth star-shaped curve,
 
-    The star is defined in polar coordinates as
+        r(θ) = r_inner + (r_outer - r_inner) * ((1 + cos(n θ)) / 2)^smoothness
 
-        r(θ) = r_inner + (r_outer - r_inner) *
-                            ((1 + cos(n_points * θ)) / 2) ** smoothness
-
-    where `smoothness` controls how rounded the inner corners are (higher
-    values give sharper tips and more rounded valleys).
+    with n = n_points.
     """
 
     def __init__(
@@ -47,7 +43,6 @@ class StarDataset(Dataset):
 
 
 if __name__ == "__main__":
-    # Make a quick plot to visualize the dataset
     import matplotlib.pyplot as plt
 
     dataset = StarDataset(num_samples=2048)

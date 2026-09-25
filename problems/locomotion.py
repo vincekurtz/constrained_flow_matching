@@ -1,19 +1,7 @@
-"""The Walker2D and Hopper examples from the SafeFlowMatcher paper.
+"""Walker2D and Hopper problems from SafeFlowMatcher.
 
-A flow model is trained *unconditionally* on windows of D4RL medium-expert
-demonstrations, with no knowledge of any roof. At inference time a single
-speed-dependent ceiling is imposed at every timestep of the window,
-
-    h(x)[t] = z_t + phi * vz_t - h_r <= 0.
-
-The two problems differ only in their :class:`LocomotionSpec`, so both are
-built by the same factory. The constraint and the index layout live in
-``problems/locomotion_spec.py``; the data lives in
-``cfm/datasets/d4rl_locomotion.py``.
-
-The paper's thresholds bind on the real data without retuning: about 35% of
-Walker2D windows and 29% of Hopper windows exceed the roof, so the constraint
-has real work to do.
+Trained unconditionally on D4RL medium-expert windows; the roof constraint
+(see ``locomotion_spec``) is imposed at inference.
 """
 
 from functools import partial
@@ -36,17 +24,12 @@ from problems.locomotion_spec import (
 )
 
 MAX_WINDOWS = 32768
-# Windows drawn behind the samples, and the (larger) reference set the
-# report measures against -- a range built from only a few dozen windows
-# is too tight to say anything about staying on the data manifold.
 PLOT_WINDOWS = 64
 REFERENCE_WINDOWS = 512
-# LDF drives the active rows exactly onto the boundary, so counting any
-# positive residual as a breach reports rounding noise as a failure.
+# Active rows land exactly on the boundary, so ignore rounding noise.
 FEASIBLE_TOL = 1e-6
 
-# Remembered from the last make_constraint call so plotting can draw the same
-# roof the samples were generated against.
+# Last roof built by build_constraint, for plotting.
 _LAST_ROOF = {}
 
 
@@ -62,14 +45,7 @@ def make_dataset(spec: LocomotionSpec, max_windows=MAX_WINDOWS):
 
 
 def make_model(spec: LocomotionSpec) -> FlowTemporalUNet:
-    """The flow model over whole trajectory windows.
-
-    A temporal U-Net over the horizon, with the transition entries as
-    channels. A flattened MLP of the same parameter count fits the marginals
-    just as well but generates visibly jagged windows, because nothing stops
-    it from moving one timestep independently of its neighbours; see the
-    module docstring of ``cfm/models/temporal_unet.py``.
-    """
+    """Temporal U-Net over the horizon, transition entries as channels."""
     return FlowTemporalUNet(
         data_shape=(HORIZON, spec.transition_dim),
         time_embedding_size=32,
@@ -88,17 +64,10 @@ def build_constraint(
 
 
 def report_violations(spec, x, height_limit, phi, reference=None):
-    """Print how far the generated windows push through the roof.
+    """Print roof violation stats.
 
-    Args:
-        spec: Which environment.
-        x: Generated windows, shape ``(num_samples, horizon, dim)``.
-        height_limit: Roof used.
-        phi: Velocity weight used.
-        reference: Optional training windows, same trailing shape. Used to
-            report how often the data itself breaks the roof, so a constraint
-            that never binds is obvious, and how far the samples have strayed
-            off the data manifold.
+    If ``reference`` training windows are given, also report how often the
+    data breaks the roof and how many sample entries leave the data range.
     """
     x = np.asarray(x)
     residual = height_residual(
@@ -133,7 +102,7 @@ def report_violations(spec, x, height_limit, phi, reference=None):
 
 
 def _trace_panel(ax, traces, color, alpha, label=None):
-    """Draw one line per window against the timestep index."""
+    """One line per window against timestep."""
     steps = np.arange(traces.shape[1])
     for i, trace in enumerate(traces):
         ax.plot(steps, trace, color=color, alpha=alpha, lw=1.0,
@@ -142,12 +111,9 @@ def _trace_panel(ax, traces, color, alpha, label=None):
 
 def plot(problem, samples, constraint=None, spec=None, title="Constrained",
          **_):
-    """Show torso-height traces, the residual, and the (z, vz) phase plane.
+    """Torso-height traces, the residual, and the (z, vz) phase plane.
 
-    The roof drawn on the height panel is not a hard cap on ``z``: the
-    constraint bounds ``z + phi * vz``, so a window descending fast enough may
-    sit above it and still be feasible. The residual panel is the one that
-    shows whether the constraint actually holds.
+    The roof on the height panel is not a cap on z alone; check the residual.
     """
     x = np.asarray(samples.x)
     reference = make_dataset(
@@ -198,7 +164,7 @@ def plot(problem, samples, constraint=None, spec=None, title="Constrained",
                   label="training")
     ax[2].scatter(z_gen.ravel(), vz_gen.ravel(), s=5, c="C0", alpha=0.6,
                   label="generated")
-    # The constraint boundary z + phi vz = h_r, drawn over the plotted range.
+    # Boundary z + phi vz = h_r.
     vz_line = np.linspace(*ax[2].get_ylim(), 2)
     ax[2].plot(limit - weight * vz_line, vz_line, color="C3", ls="--")
     ax[2].set_xlabel("torso height $z$ (m)")
@@ -213,12 +179,7 @@ def plot(problem, samples, constraint=None, spec=None, title="Constrained",
 
 
 def make_problem(spec: LocomotionSpec) -> Problem:
-    """One registry entry per environment.
-
-    Nothing here touches the disk: the registry is rebuilt on every CLI
-    invocation, so the dataset stays behind a lambda and the constraint is
-    built from the spec alone.
-    """
+    """Registry entry for one environment. Must not touch the disk."""
     return Problem(
         name=spec.name,
         label=f"{spec.label} (medium-expert)",
@@ -227,25 +188,16 @@ def make_problem(spec: LocomotionSpec) -> Problem:
         train=TrainConfig(
             num_epochs=200,
             batch_size=256,
-            # Cosine decay is what makes the windows smooth rather than
-            # merely correct: at a constant rate the last iterate is still
-            # bouncing around the minimum, and on the near-constant torso
-            # height that jitter is larger than the signal. Decaying to
-            # 5% of the peak cuts the height trace's step-to-step
-            # roughness from 6.5x the training data's to 5.2x.
+            # Cosine decay gives noticeably smoother height traces.
             learning_rate=2e-4,
             schedule="cosine",
-            # Worth about one percent of the marginal spread, consistently
-            # across seeds, and costs no measurable training time.
             ema_decay=0.999,
             print_frequency=10,
         ),
         make_constraint=partial(build_constraint, spec),
         plot=partial(plot, spec=spec),
         method_gains={
-            # The residual is affine in x and its rows have disjoint support,
-            # so one Gauss-Newton step is an exact projection -- unlike the
-            # obstacle scene, which needs five for its nonlinear residual.
+            # Affine residual: one Gauss-Newton step projects exactly.
             "ldf": {
                 "penalty_weight": 20.0,
                 "rescale_factor": 10.0,

@@ -1,13 +1,4 @@
-"""Forward-pass behavior of the temporal U-Net.
-
-Like ``test_flow_architectures``, the model is built once per session and
-every assertion reuses it: each new input shape costs an XLA compilation.
-
-The last two tests are the point of the architecture. A flattened MLP passes
-everything above them and still generates jagged windows, so they check the
-property that actually differs: the network mixes neighbouring timesteps, and
-cannot respond to one timestep alone.
-"""
+"""Forward-pass behavior of the temporal U-Net."""
 
 import jax.numpy as jnp
 import pytest
@@ -32,12 +23,8 @@ def net():
 
 @pytest.fixture(scope="session")
 def trained(net):
-    """The same net with its zero-initialized output layer perturbed.
-
-    Straight out of ``__init__`` the output projection is zero, so the field
-    is identically zero and every sensitivity test below would pass
-    vacuously. One gradient-free nudge stands in for training.
-    """
+    """A net with its zero-initialized output layer randomized, so
+    sensitivity tests aren't vacuous."""
     model = FlowTemporalUNet(
         data_shape=(HORIZON, DIM),
         time_embedding_size=8,
@@ -51,7 +38,6 @@ def trained(net):
 
 
 def test_output_matches_input_shape(net):
-    """Down- and up-sampling must land back on the input horizon."""
     x = jnp.ones((BATCH, HORIZON, DIM))
     y = net(x, jnp.linspace(0, 1, BATCH))
     assert y.shape == x.shape
@@ -59,7 +45,6 @@ def test_output_matches_input_shape(net):
 
 
 def test_output_starts_at_zero(net):
-    """The output projection is zero-initialized, so v(x, t) = 0 at init."""
     y = net(jnp.ones((BATCH, HORIZON, DIM)), jnp.linspace(0, 1, BATCH))
     assert jnp.all(y == 0.0)
 
@@ -87,12 +72,7 @@ def test_rejects_horizon_the_levels_cannot_halve():
 
 
 def test_neighbouring_timesteps_are_coupled(trained):
-    """Perturbing one timestep must move the velocity at nearby ones.
-
-    This is the inductive bias a flattened MLP has to learn instead: a
-    window is a time series, so a change at step 8 says something about step
-    9. Without it the model is free to emit independent per-step noise.
-    """
+    """Perturbing one timestep moves the velocity at its neighbours."""
     x = jnp.zeros((2, HORIZON, DIM))
     poked = x.at[1, HORIZON // 2, :].set(1.0)
     y = trained(jnp.concatenate([x[:1], poked[1:]]), jnp.full((2,), 0.5))
@@ -102,11 +82,7 @@ def test_neighbouring_timesteps_are_coupled(trained):
 
 
 def test_response_to_one_timestep_is_local(trained):
-    """The response decays with distance from the perturbed timestep.
-
-    Convolutions of width 5 over two downsampling levels give a wide but
-    finite receptive field, so a poke is felt most strongly where it lands.
-    """
+    """The response is strongest at the perturbed timestep."""
     x = jnp.zeros((2, HORIZON, DIM))
     poked = x.at[1, HORIZON // 2, :].set(1.0)
     y = trained(jnp.concatenate([x[:1], poked[1:]]), jnp.full((2,), 0.5))
@@ -116,7 +92,6 @@ def test_response_to_one_timestep_is_local(trained):
 
 
 def test_resblock_preserves_length_and_changes_channels():
-    """A block maps (batch, length, in) to (batch, length, out)."""
     block = TemporalResBlock(4, 8, time_dim=12, rngs=nnx.Rngs(0))
     y = block(jnp.ones((BATCH, HORIZON, 4)), jnp.ones((BATCH, 12)))
     assert y.shape == (BATCH, HORIZON, 8)
@@ -124,13 +99,7 @@ def test_resblock_preserves_length_and_changes_channels():
 
 
 # ---------------------------------------------------------------------------
-# Wiring into the locomotion problems
-#
-# ``make_model`` is pure -- no disk, no download -- so the real Walker2D and
-# Hopper models can be built here. Their channel count is the transition
-# width, which differs per environment, and their horizon has to survive the
-# downsampling; both are easy to break from the spec side and invisible until
-# a training run starts.
+# Locomotion models
 # ---------------------------------------------------------------------------
 
 

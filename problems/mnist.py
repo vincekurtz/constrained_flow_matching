@@ -1,9 +1,4 @@
-"""MNIST digits, with top-half inpainting as the constraint.
-
-The inpainting setup -- reference digit, mask, selection matrix -- was
-previously written out three times in ``examples/mnist.py`` and twice more in
-the benchmark and the figures. It is defined once here.
-"""
+"""MNIST digits, with top-half inpainting as the constraint."""
 
 import math
 
@@ -18,14 +13,14 @@ from problems import Problem, TrainConfig
 
 IMAGE_SHAPE = (28, 28, 1)
 NUM_PIXELS = math.prod(IMAGE_SHAPE)
-OBSERVED_ROWS = 14  # the top half is held fixed
+OBSERVED_ROWS = 14
 REFERENCE_DIGIT = 5
 
 
 def _reference_and_mask():
     """The digit being inpainted, and which of its pixels are observed."""
     dataset = MNISTDataset(train=False, digit=REFERENCE_DIGIT)
-    reference = jnp.array(dataset[0])  # (28, 28, 1)
+    reference = jnp.array(dataset[0])
     mask = (
         jnp.zeros(IMAGE_SHAPE, dtype=bool).at[:OBSERVED_ROWS, :, :].set(True)
     )
@@ -55,12 +50,7 @@ def make_model():
 
 
 def plot(problem, samples, constraint=None, **_):
-    """Grid of generated digits, with the reference alongside when inpainting.
-
-    This grid was copy-pasted three times in the old example script, once per
-    method; it is drawn from ``samples`` here regardless of which method
-    produced them.
-    """
+    """Grid of generated digits, with the reference when inpainting."""
     x = jnp.clip(samples.x, 0.0, 1.0)
     num = x.shape[0]
     n = math.isqrt(num)
@@ -78,7 +68,7 @@ def plot(problem, samples, constraint=None, **_):
     reference, mask = _reference_and_mask()
     _, axes = plt.subplots(n, n + 1, figsize=(n + 1, n))
 
-    # First column: the reference, with the unobserved half dimmed.
+    # First column: the reference, unobserved half dimmed.
     for row in range(n):
         ax = axes[row, 0]
         if row == 0:

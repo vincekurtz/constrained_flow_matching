@@ -5,40 +5,19 @@ import jax.numpy as jnp
 
 
 class Normalizer:
-    """A simple data normalizer.
-
-    Scales input data to have zero mean and unit variance, based on statistics
-    computed from the training data. Supports data of any shape.
-    """
+    """Per-element zero-mean, unit-variance scaling."""
 
     def __init__(self, mean: jax.Array, std: jax.Array):
-        """Create a normalizer with pre-computed statistics.
-
-        Args:
-            mean: The mean of the data, shape matching a single data point.
-            std: The standard deviation of the data, same shape as mean.
-        """
         self.mean = mean
         self.std = std
 
     @classmethod
     def from_dataloader(cls, dataloader: Iterable[jax.Array]) -> "Normalizer":
-        """Compute mean and std by iterating over batches from a dataloader.
-
-        Uses an online algorithm so the full dataset need not fit in memory.
-
-        Args:
-            dataloader: An iterable yielding batches of shape (batch, ...).
-
-        Returns:
-            A Normalizer with the computed mean and std.
-        """
+        """Compute mean and std from running sums over batches."""
         count = 0
         running_sum = 0
         running_sum_sq = 0
 
-        # TODO(vincekurtz): consider jit-compiling this loop if it becomes a
-        # bottleneck on large problems.
         for batch in dataloader:
             batch_size = batch.shape[0]
             batch_sum = jnp.sum(batch, axis=0)
@@ -55,9 +34,7 @@ class Normalizer:
         return cls(mean, std)
 
     def normalize(self, x: jax.Array) -> jax.Array:
-        """Normalize the input data x."""
         return (x - self.mean) / self.std
 
     def unnormalize(self, x: jax.Array) -> jax.Array:
-        """Un-normalize the input data x."""
         return x * self.std + self.mean

@@ -20,7 +20,6 @@ def test_equality_violation_is_absolute_residual():
 
 
 def test_equality_violation_is_symmetric():
-    """Overshooting and undershooting count the same."""
     c = equality(lambda x: jnp.atleast_1d(x[0]))
     assert float(c.violation(jnp.array([-0.5]))) == pytest.approx(0.5)
     assert float(c.violation(jnp.array([0.5]))) == pytest.approx(0.5)

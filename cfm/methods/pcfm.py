@@ -1,24 +1,10 @@
-"""Implements the PCFM (Physics-Constrained Flow Matching) baseline.
+"""Physics-Constrained Flow Matching (PCFM) baseline.
 
-Reference: Utkarsh et al., "Physics-Constrained Flow Matching: Sampling
-Generative Models with Hard Constraints" (https://arxiv.org/pdf/2506.04171),
-Algorithm 1.
+Utkarsh et al., "Physics-Constrained Flow Matching: Sampling Generative Models
+with Hard Constraints", https://arxiv.org/abs/2506.04171, Algorithm 1.
 
-The method enforces a (possibly nonlinear) constraint ``h(x) = 0`` at the final
-sample by interleaving four operations at every step:
-
-    1. Forward shoot from the current time to ``t = 1`` to predict the clean
-       sample ``u_1`` (we use a single Euler / Tweedie step).
-    2. Gauss-Newton projection of ``u_1`` onto the linearised constraint
-       manifold: ``u_proj = u_1 - J^T (J J^T)^{-1} h(u_1)``.
-    3. Reverse OT solve: a constant-velocity reverse integration along the OT
-       displacement, which for the linear OT interpolant collapses to
-       ``u_hat = (1 - t') u_0 + t' u_proj``.
-    4. (Optional) relaxed penalty correction that gradient-descends
-       ``||u - u_hat||^2 + lambda ||h(u + gamma v(u, t'))||^2`` for a few
-       iterations.
-
-A final Gauss-Newton loop drives the residual to numerical zero.
+Each step: shoot to t = 1, project onto ``h(x) = 0``, interpolate back along
+the OT path, then optionally apply a relaxed penalty correction.
 """
 
 import math
@@ -56,41 +42,17 @@ def generate_pcfm(
 ) -> Tuple[jax.Array, jax.Array]:
     """Generate samples satisfying ``constraint_fn(x) = 0`` via PCFM.
 
-    Implements Algorithm 1 of Utkarsh et al., 2025.
-
     Args:
-        model: Trained flow model ``xdot = v(x, t)``. Must have ``data_shape``.
-        normalizer: Normalizer used during training, applied in reverse to
-            produce samples in the original data space.
-        constraint_fn: Differentiable ``h(x)`` on a single *unnormalized*
-            sample; the constraint is ``h(x) = 0``. May return a scalar or a
-            1-D array.
-        num_samples: Number of samples to generate.
-        num_steps: Number of outer integration steps ``N`` (paper default
-            100-200 for PDE benchmarks).
-        seed: Random seed for the initial noise. Ignored when ``rng`` is given.
-        rng: PRNG key for the initial noise.
-        correction_weight: Weight ``lambda`` on the relaxed-correction
-            penalty. The paper notes ``lambda = 0`` is appropriate for linear
-            constraints (the projection alone suffices). Named distinctly
-            from LDF's ``penalty_weight``, which is a different quantity.
-        num_correction_iters: Gradient-descent iterations for the relaxed
-            correction (ignored when ``correction_weight == 0``).
-        correction_lr: Step size for the relaxed-correction gradient descent.
-        num_projection_iters: Number of Gauss-Newton iterations used for the
-            per-step projection of the endpoint estimate onto the constraint
-            manifold. A single step is unreliable for strongly nonlinear
-            constraints (e.g. projecting a near-origin point onto a circle
-            overshoots to a huge radius), so we iterate to convergence.
-        num_final_projection_iters: Number of Gauss-Newton iterations applied
-            after the main loop to drive ``||h(x)||`` to numerical zero.
-        eps_reg: Tikhonov regulariser on ``J J^T`` for the projection solve.
-
-    Returns:
-        x: Final samples of shape ``(num_samples, *data_shape)``.
-        xs: Trajectories of shape ``(num_steps + 1, num_samples, *data_shape)``,
-            spanning ``t = 0`` (initial noise) to ``t = 1`` (post-projection
-            final sample).
+        constraint_fn: ``h(x)`` on a single unnormalized sample.
+        num_steps: number of outer steps.
+        correction_weight: penalty weight in the relaxed correction; 0
+            disables it.
+        num_correction_iters: gradient steps for the relaxed correction.
+        correction_lr: step size for the relaxed correction.
+        num_projection_iters: Gauss-Newton iterations per step. One step
+            overshoots badly on nonlinear constraints.
+        num_final_projection_iters: Gauss-Newton iterations after the loop.
+        eps_reg: regularizer on ``J J^T``.
     """
     rng = resolve_rng(rng, seed)
     data_shape = model.data_shape
@@ -99,21 +61,13 @@ def generate_pcfm(
     _h = wrap_constraint(constraint_fn, normalizer, data_shape)
 
     def _v(u_flat: jax.Array, tau: jax.Array) -> jax.Array:
-        """Flow velocity at a single flat normalized sample."""
         u = u_flat.reshape(data_shape)
         return model(u[None], jnp.atleast_1d(tau))[0].ravel()
 
     def _project_step(u_flat: jax.Array) -> jax.Array:
-        """One Gauss-Newton step: u <- u - J^T (J J^T)^{-1} h(u)."""
         return gauss_newton_step(_h, u_flat, eps_reg=eps_reg)
 
     def _project(u_flat: jax.Array) -> jax.Array:
-        """Iterate Gauss-Newton onto the manifold ``h(u) = 0``.
-
-        A single linearised step badly overshoots for nonlinear constraints
-        (projecting a point near the origin onto a circle blows up to radius
-        ``~1/(2|u|)``), so we iterate to convergence.
-        """
         for _ in range(num_projection_iters):
             u_flat = _project_step(u_flat)
         return u_flat
@@ -121,7 +75,6 @@ def generate_pcfm(
     def _relaxed_correction(
         u_hat: jax.Array, tau_next: jax.Array
     ) -> jax.Array:
-        """Soft refinement on the relaxed objective (no-op when lambda = 0)."""
         if correction_weight == 0.0:
             return u_hat
         gamma = 1.0 - tau_next
@@ -142,38 +95,30 @@ def generate_pcfm(
         def _scan_step(u_flat, k):
             tau = k * dtau
             tau_next = (k + 1) * dtau
-            # 1. Forward shoot to t = 1 with a single Euler / Tweedie step.
+            # Shoot to t = 1, project, then interpolate back to tau_next.
             u1 = u_flat + (1.0 - tau) * _v(u_flat, tau)
-            # 2. Gauss-Newton projection onto the linearised manifold.
             u_proj = _project(u1)
-            # 3. Reverse OT solve: linear interpolation u0 -> u_proj at tau'.
             u_hat = (1.0 - tau_next) * u0_flat + tau_next * u_proj
-            # 4. Relaxed penalty correction.
             u_next = _relaxed_correction(u_hat, tau_next)
             return u_next, u_next
 
         ks = jnp.arange(num_steps, dtype=jnp.float32)
         u_final, traj = jax.lax.scan(_scan_step, u0_flat, ks)
 
-        # Final Gauss-Newton sweep to drive ||h(u)|| to numerical zero.
         u_final_proj = u_final
         for _ in range(num_final_projection_iters):
             u_final_proj = _project_step(u_final_proj)
 
-        # Prepend the initial noise and overwrite the last step with the
-        # post-projection sample so the trajectory ends on the manifold.
         traj_full = jnp.concatenate(
             [u0_flat[None], traj[:-1], u_final_proj[None]], axis=0
         )
         return u_final_proj, traj_full
 
-    # Initial noise (normalised space) sampled once per generation call.
     x_init = initial_noise(rng, num_samples, data_shape)
     x_init_flat = x_init.reshape((num_samples, flat_dim))
 
     x_final_flat, xs_flat = jax.vmap(_per_sample)(x_init_flat)
 
-    # Reshape back to (num_samples, *data_shape) and put time first on xs.
     x_final = x_final_flat.reshape((num_samples,) + data_shape)
     xs = xs_flat.transpose((1, 0, 2)).reshape(
         (num_steps + 1, num_samples) + data_shape
@@ -188,10 +133,7 @@ def generate(
     constraint: Constraint,
     **kwargs,
 ) -> Samples:
-    """Registry entry point: PCFM against a :class:`Constraint`.
-
-    PCFM projects onto a manifold, so it handles equalities only.
-    """
+    """Registry entry point (equality constraints only)."""
     if constraint.kind != EQUALITY:
         raise ValueError(
             f"PCFM supports equality constraints only, got {constraint.kind!r}"

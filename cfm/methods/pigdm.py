@@ -1,11 +1,7 @@
-"""Implements the PiGDM (pseudo-inverse guidance) baseline of Pokle et al. 2023.
+"""PiGDM (pseudo-inverse guidance) baseline.
 
-Reference: https://arxiv.org/pdf/2310.04432
-
-The original method is written for noisy linear inverse problems y = A x + eps.
-We specialise to the noise-free equality constraint g(x) = A x - y = 0, but
-the implementation works for any differentiable ``constraint_fn`` by evaluating
-the residual ``g(x)`` and its Jacobian ``A = dg/dx`` via autodiff.
+Pokle et al. 2023, https://arxiv.org/abs/2310.04432. Specialized to the
+noise-free constraint ``g(x) = 0``, with the Jacobian of ``g`` from autodiff.
 """
 
 from typing import Callable, Tuple
@@ -37,45 +33,19 @@ def generate_pigdm(
     guidance_scale: float = 1.0,
     eps_reg: float = 1e-4,
 ) -> Tuple[jax.Array, jax.Array]:
-    """Generate samples from a flow-matching model with PiGDM guidance.
+    """Generate samples satisfying ``g(x) = 0`` with PiGDM guidance.
 
-    Implements the PiGDM baseline (Pokle et al., 2023, Algorithm 1) for the
-    equality constraint ``g(x) = 0``. At each integration step we compute the
-    Tweedie-style clean estimate ``mu = x_t + (1 - t) v(x_t, t)``, evaluate
-    the constraint residual ``g(mu)`` and its Jacobian ``A = dg/dmu``, and add
-    the pseudo-inverse correction of Eq. 15:
+    With ``mu = x + (1 - t) v`` and ``A = dg/dmu``, the drift is (Eq. 15)
 
-        v_y = v + guidance * ((1 - t) / t)
-                * J^T A^T (r_t^2 A A^T + eps_reg I)^{-1} (y - A mu)
+        v + guidance_scale * ((1 - t) / t)
+          * (dmu/dx)^T A^T (r_t^2 A A^T + eps_reg I)^{-1} (-g(mu)),
 
-    where ``J = d mu / d x_t``, ``r_t^2 = (1 - t)^2 / (t^2 + (1 - t)^2)`` (Eq.
-    16), and ``(1 - t) / t`` is the score-to-vector-field scale from line 8 of
-    Algorithm 1. Both the chain-rule push back through ``J`` and the
-    multiplication by ``A^T`` are evaluated with vector-Jacobian products, so
-    no Jacobians are formed explicitly except the small ``m x n`` constraint
-    Jacobian needed to build ``A A^T``.
+    where ``r_t^2 = (1 - t)^2 / (t^2 + (1 - t)^2)``.
 
     Args:
-        model: Trained flow model xdot = v(x, t). Must have a ``data_shape``
-            attribute.
-        normalizer: Normalizer used during training, applied in reverse to
-            produce samples in the original data space.
-        constraint_fn: Differentiable function ``g(x)`` (operating on a single
-            *unnormalized* sample) such that ``g(x) = 0`` is the desired
-            constraint. May return a scalar or a 1-D array. For a linear
-            inverse problem this is ``g(x) = A x - y``.
-        num_samples: Number of samples to generate.
-        dt: Step size hint for the adaptive integrator.
-        seed: Random seed for the initial noise. Ignored when ``rng`` is given.
-        rng: PRNG key for the initial noise.
-        guidance_scale: Extra multiplicative weight on the PiGDM correction;
-            ``1.0`` matches Algorithm 1 (``gamma_t = 1`` for OT-ODE).
-        eps_reg: Tikhonov regulariser on ``r_t^2 A A^T`` (substitutes for
-            ``sigma_y^2`` in our noise-free setting).
-
-    Returns:
-        x: Final generated samples of shape ``(num_samples, *data_shape)``.
-        xs: Trajectories of shape ``(num_steps, num_samples, *data_shape)``.
+        constraint_fn: ``g(x)`` on a single unnormalized sample.
+        guidance_scale: weight on the correction; 1 matches the paper.
+        eps_reg: regularizer standing in for ``sigma_y^2``.
     """
     rng = resolve_rng(rng, seed)
     data_shape = model.data_shape
@@ -86,36 +56,25 @@ def generate_pigdm(
         x = y
         x_flat = x.reshape((x.shape[0], -1))
 
-        # Posterior variance scale (Eq. 16); r_t -> 0 as t -> 1.
+        # Eq. 16.
         r_t_sq = (1.0 - t) ** 2 / (t ** 2 + (1.0 - t) ** 2)
-        # Score-to-vector-field scale from Algorithm 1, line 8. Floored to keep
-        # the first integration step finite.
+        # Floored to keep the first step finite.
         vf_scale = (1.0 - t) / jnp.maximum(t, 0.1)
 
         def _mu(x_t_flat: jax.Array):
-            """Tweedie estimate of the clean sample for a single x_t.
-
-            Returns ``mu`` as the primary output and the flat velocity ``v``
-            as an auxiliary so we can reuse the same forward pass for both
-            the unconditional drift and the chain-rule push back.
-            """
+            """Clean-sample estimate, with the velocity as aux."""
             x_t = x_t_flat.reshape(data_shape)
             v_flat = model(x_t[None], jnp.array([t]))[0].ravel()
             return x_t_flat + (1.0 - t) * v_flat, v_flat
 
         def _single(x_t_flat: jax.Array):
             mu, vjp_mu, v_flat = jax.vjp(_mu, x_t_flat, has_aux=True)
-            # Constraint residual and Jacobian A = dg/dmu at the clean estimate.
             g_val = _g(mu)
             A = jax.jacobian(_g)(mu)
             m = g_val.shape[0]
-            # Solve (r_t^2 A A^T + eps I) z = g, then form A^T z. With our
-            # convention g_val = A mu - y, so -A^T z = A^T (...)^{-1} (y - A mu)
-            # which is the paper's gradient direction at mu (Eq. 15).
             AAT = A @ A.T
             z = jnp.linalg.solve(r_t_sq * AAT + eps_reg * jnp.eye(m), g_val)
             grad_at_mu = -A.T @ z
-            # Push the gradient back to x_t via J^T = (d mu / d x_t)^T.
             (grad_at_xt,) = vjp_mu(grad_at_mu)
             return v_flat + guidance_scale * vf_scale * grad_at_xt
 
@@ -124,8 +83,6 @@ def generate_pigdm(
 
     x_init = initial_noise(rng, num_samples, data_shape)
 
-    # Unlike the LDF flows, PiGDM has no term singular at t = 1, so the
-    # endpoint itself is recorded.
     solution = diffrax.diffeqsolve(
         diffrax.ODETerm(_ode_fn),
         diffrax.Midpoint(),
@@ -149,10 +106,7 @@ def generate(
     constraint: Constraint,
     **kwargs,
 ) -> Samples:
-    """Registry entry point: PiGDM against a :class:`Constraint`.
-
-    PiGDM guides toward a residual of zero, so it handles equalities only.
-    """
+    """Registry entry point (equality constraints only)."""
     if constraint.kind != EQUALITY:
         raise ValueError(
             f"PiGDM supports equality constraints only, "

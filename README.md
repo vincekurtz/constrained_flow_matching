@@ -1,15 +1,14 @@
 # Constrained Flow Matching via Lagrangian Dual Flows
 
-This repository implements the constrained flow matching method described in the
-paper [Constrained Flow Matching via Lagragian Dual
+Code for [Constrained Flow Matching via Lagrangian Dual
 Flows](https://arxiv.org/abs/2607.04513) by Vince Kurtz and Alexander Davydov.
 
-This method, **Lagrangian Dual Flows (LDF)**, takes a pre-trained [flow
+**Lagrangian Dual Flows (LDF)** take a pre-trained [flow
 matching](https://arxiv.org/abs/2210.02747) model
 ```math
 \dot{x} = v_\theta(x, t)
 ```
-and enforces inference-time constraints
+and enforce inference-time constraints
 ```math
 g(x) = 0
 ```
@@ -21,353 +20,140 @@ by augmenting the denoising ODE with Lagrangian dual dynamics
 \end{aligned}
 ```
 
-Inequality constraints are also supported: see the paper for full details.
+Inequality constraints are also supported; see the paper for details.
 
 > [!WARNING]
-> This is active research code, not a stable library. Expect rough edges: the
-> API may change without notice, some interfaces are undocumented, and things
-> may break. It is provided as-is, with no guarantee of support or maintenance.
-> Use at your own risk.
+> This is research code. Expect rough edges and breaking changes.
 
-## Install
+## Install and Testing
 
-Install dependencies with [uv](https://docs.astral.sh/uv/):
 ```
 uv sync --dev
-```
-
-The locomotion figures additionally render a MuJoCo scene, which nothing else
-in the repo needs:
-```
-uv sync --group render
-```
-
-Run unit tests:
-```
+uv sync --group render   # optional: MuJoCo, for the locomotion figures
 uv run pytest
-```
-
-Run lint checks:
-```
 uv run ruff check
 ```
 
 ## Layout
 
 ```
-cfm/            the library
-  core/         solver scaffolding, constraints, common utilities
-  methods/      LDF and baselines, plus the method registry
-  models/       flow architectures (MLP, image UNet, temporal UNet, normalizer)
+cfm/            library
+  core/         solvers, constraints, utilities
+  methods/      LDF, baselines, and the method registry
+  models/       flow architectures
   datasets/     training datasets
-  cli.py        the command line entry point
-  sweep.py      declarative benchmark sweeps
-problems/       the example problems, and the problem registry
-experiments/    sweep configurations and the recorded performance baseline
+  cli.py        command line entry point
+  sweep.py      benchmark sweeps
+problems/       example problems and the problem registry
+experiments/    sweep configs and the recorded performance baseline
 plots.py        paper figures
 ```
 
-Everything is driven by two registries. `cfm/methods/__init__.py` lists the
-generation methods; `problems/__init__.py` lists the examples. Adding either
-one is a single entry, and the CLI, the benchmark, the sweep and the tests
-pick it up automatically.
-
-To see what is registered, and which methods can handle which problem:
-
-```bash
-uv run -m cfm.cli list
-```
+Methods are registered in `cfm/methods/__init__.py` and problems in
+`problems/__init__.py`. `uv run -m cfm.cli list` shows both.
 
 ## Methods
 
 | Name | Description | Constraints |
 |------|-------------|-------------|
-| `ldf` | Lagrangian Dual Flows, the method of the paper | equality, inequality |
-| `penalty` | Penalty-only ablation: LDF with the multipliers frozen at zero | equality, inequality |
+| `ldf` | Lagrangian Dual Flows (ours) | equality, inequality |
+| `penalty` | Quadratic penalty on constraint violation | equality, inequality |
 | `pcfm` | [Physics-constrained flow matching](https://arxiv.org/abs/2506.04171) | equality |
 | `pigdm` | [Pseudoinverse guidance](https://arxiv.org/abs/2310.04432) | equality |
 | `cbf` | [SafeFlow](https://arxiv.org/abs/2504.08661) control barrier function filter | inequality |
 
-The `penalty` baseline is LDF with `rescale_factor = 0`, which freezes the
-Lagrange multipliers at their zero initialization and collapses the drift to
-$\dot{x} = v_\theta - \nabla g^\top g$: a pure quadratic penalty with no dual
-dynamics. 
-
 ## Examples
 
-### Training and generating
+### 2-D toy problems
 
 ```bash
-# train
 uv run -m cfm.cli train --problem star
-
-# generate (unconstrained)
-uv run -m cfm.cli generate --problem star
-
-# generate with a constraint
+uv run -m cfm.cli generate --problem star                  # unconstrained
 uv run -m cfm.cli generate --problem star --method ldf
-uv run -m cfm.cli generate --problem star --method penalty
-uv run -m cfm.cli generate --problem star --method pcfm
-```
-
-The 2-D problems (`bimodal`, `spiral`, `star`, `unit_circle`) train in about a
-minute on a laptop CPU. `star` and `unit_circle` impose a unit-norm
-constraint by default, and both also offer a right-half-plane inequality with
-`--constraint right_half`:
-
-```bash
 uv run -m cfm.cli generate --problem star --method ldf --constraint right_half
 ```
 
-Per-problem gains are registered with the problem, so the commands above use
-the settings the paper uses. Any of them can be overridden on the command
-line (`--penalty-weight`, `--rescale-factor`, `--dt`, ...).
+`bimodal`, `spiral`, `star`, and `unit_circle` each train in about a minute on a
+small GPU. Default gains are set per problem and can be overridden on the
+command line (`--penalty-weight`, `--rescale-factor`, `--dt`, ...).
 
 ### Obstacle avoidance
 
-A point-mass robot plans a path through a field of circular obstacles. The
-flow model is trained *unconditionally* on wiggly start-to-goal paths and never
-sees an obstacle. At inference time a brand-new scene is sampled and obstacle
-avoidance is imposed with inequality constraints
-
-```math
-h(x) = r_j + \text{clearance} - \|p_i - c_j\| \le 0
-```
-
-for every point `p_i` sampled along the path and every obstacle `(c_j, r_j)`.
-The decision variables are the interior knots of a cubic Bezier spline, so the
-robot's path is smooth however the constraints push the knots around. The start
-and goal are fixed and shared by every path.
+A flow model is trained on obstacle-free start-to-goal paths, parameterized as
+cubic Bezier splines. At inference time, obstacle avoidance is imposed as
+inequality constraints on a randomly generated scene.
 
 ```bash
-# train (takes about 30 seconds)
 uv run -m cfm.cli train --problem obstacles
-
-# unconditional generation
-uv run -m cfm.cli generate --problem obstacles
-
-# plan around a new, randomly generated scene
-uv run -m cfm.cli generate --problem obstacles --method ldf --dt 0.002
 uv run -m cfm.cli generate --problem obstacles --method ldf --dt 0.002 \
     --num-obstacles 3 --scene-seed 7
-```
-
-`--num-obstacles` and `--scene-seed` control the test scene. With the default
-closed-form slack, all 64 generated paths clear every obstacle across 1-3
-obstacle scenes.
-
-`--slack ode` switches to carrying the slack variable as an extra ODE state
-instead of substituting its closed-form minimizer. The slack ODE needs much
-gentler gains to stay stable and enforces the constraint less tightly,
-especially as obstacles are added.
-
-`--method cbf` runs the SafeFlow control barrier function baseline on the same
-scene, with `--phi0` and `--omega` setting the barrier gains. The safety-filter
-QP is solved with [qpax](https://github.com/kevin-tracy/qpax); barrier
-conditions that cannot all be met at once make it infeasible, which
-`--qp exact` raises on and `--qp elastic` relaxes, pricing violation at
-`--qp-penalty` per unit. The exact solve is fragile enough that Table 1's
-obstacle rows ask for the relaxation: at their `dt = 0.002` the barrier
-conditions are mutually infeasible on essentially every sample and the exact
-solve fails outright.
-
-```bash
 uv run -m cfm.cli generate --problem obstacles --method cbf --qp elastic
 ```
 
 ### D4RL locomotion
 
-The Walker2D and Hopper examples from the
-[SafeFlowMatcher](https://arxiv.org/abs/2509.24243) paper. A flow model is
-trained *unconditionally* on 32-step windows of the D4RL medium-expert
-demonstrations, laid out the way Diffuser lays out a plan --
-`(horizon, action_dim + obs_dim)`, actions first. The model is Diffuser's
-temporal U-Net, convolving along the horizon with the transition entries as
-channels; a flattened MLP fits the marginals equally well but generates
-visibly jagged windows. At inference time a single
-speed-dependent ceiling is imposed at every timestep of the window,
-
-```math
-h(x)_t = z_t + \phi\, v_{z,t} - h_r \le 0
-```
-
-where `z` is the torso height and `v_z` its vertical velocity. That is the
-barrier of SafeFlowMatcher Appendix D.2; the paper states the form but no
-numbers, so `h_r` and `phi` come from
-[SafeDiffuser](https://arxiv.org/abs/2306.00148), whose locomotion setup
-SafeFlowMatcher says it reuses: `h_r = 1.4` m for Walker2D, `1.6` m for
-Hopper, `phi = 0.1` s for both. Unlike SafeDiffuser, which converts `h_r` and
-`z` to normalized units but applies `phi` to an already-normalized `v_z`, the
-residual here is written entirely in metres and metres per second.
-
-The thresholds bind on the real data without retuning: 35% of Walker2D windows
-and 29% of Hopper windows exceed the roof, and so do 31% and 26% of the
-model's unconstrained samples.
+Walker2D and Hopper examples from
+[SafeFlowMatcher](https://arxiv.org/abs/2509.24243). A temporal U-Net is
+trained on 32-step windows of D4RL medium-expert data, and a torso height limit
+$z_t + \phi v_{z,t} \le h_r$ is imposed at inference time. `h_r` and `phi`
+follow [SafeDiffuser](https://arxiv.org/abs/2306.00148).
 
 ```bash
-# train (about six minutes each on a GPU)
 uv run -m cfm.cli train --problem walker2d
-uv run -m cfm.cli train --problem hopper
-
-# unconditional generation
-uv run -m cfm.cli generate --problem walker2d
-
-# enforce the roof
 uv run -m cfm.cli generate --problem walker2d --method ldf
 uv run -m cfm.cli generate --problem hopper --method ldf --height-limit 1.5
 ```
 
-`--height-limit` and `--phi` move the roof; they default to the paper's
-values. The plot shows torso-height traces against the roof, the per-timestep
-residual, and the `(z, v_z)` phase plane with the constraint boundary drawn,
-which is where a roof that fails to bind would be obvious. The roof on the
-height panel is not a hard cap on `z` -- the constraint bounds `z + phi*v_z`,
-so a window descending fast enough sits above it and is still feasible.
-
-The residual is affine in `x` and its rows have disjoint support, so a single
-Gauss-Newton step is an exact projection -- `--num-projection-iters 1`, against
-the obstacle scene's 5. At the default `dt = 0.01` LDF takes the worst
-violation from `1.2e-01` unconstrained to `9.5e-07` on Walker2D and
-`8.6e-02` to `1.6e-06` on Hopper, without moving the samples off the data
-manifold: the fraction of entries outside the training range is unchanged from
-the unconstrained model.
-
-The first run downloads the D4RL v2 files (about 770 MB for both) into
-`data/d4rl/`. The official host is unreachable, so they come from the
-`imone/D4RL` mirror on HuggingFace.
-
-**Phase portraits.** `plots.py` draws the `(z, v_z)` plane for each
-environment -- every timestep of the training windows in grey, every timestep
-of the constrained samples in blue, against the ceiling -- beside a MuJoCo
-rendering of the robot with `z` and `v_z` marked on it, so the axes are
-something the reader has seen on the system:
-
-```bash
-uv run python plots.py --plot locomotion_walker2d --regenerate
-uv run python plots.py --plot locomotion_hopper --regenerate
-```
-
-The constraint, the roof, the seed, the sample count and the step size are
-the `generate` command's, so the figure is the example above and not a
-separate experiment. The boundary is the slanted line `z + phi*v_z = h_r`:
-because of the lookahead a window descending fast enough is feasible above
-`h_r`, and one rising fast enough is infeasible below it, which is why the
-grey cloud crosses it in one corner and not the other. Rendering a pose is
-exact apart from one coordinate: an observation is `qpos[1:] + qvel`, so
-every joint angle is read straight out of the window, and only the root
-x-position, which the observation drops, is recovered -- by integrating the
-root x-velocity at the 0.008 s control timestep.
+The first run downloads the D4RL data (~770 MB) into `data/d4rl/` from the
+`imone/D4RL` HuggingFace mirror.
 
 ### MNIST
 
-The MNIST example trains a UNet-based flow-matching model on handwritten digits
-and supports inpainting: the top half of each image is fixed to a reference
-sample and the model generates plausible completions.
+Inpainting: the top half of each image is fixed and the model fills in the
+bottom half. Training requires a GPU.
 
 ```bash
-# train (requires a GPU; takes ~30 minutes)
 uv run -m cfm.cli train --problem mnist
-
-# unconditional generation
-uv run -m cfm.cli generate --problem mnist
-
-# inpainting: fix top half, generate bottom half
 uv run -m cfm.cli generate --problem mnist --method ldf
 ```
 
-Trained models are saved to `data/<problem>_model.pkl`; `--save-path`
-overrides this for every subcommand.
+Trained models are saved to `data/<problem>_model.pkl` (override with
+`--save-path`).
 
-## Benchmarks and experiments
-
-Time a single method, one sample at a time:
+## Benchmarks
 
 ```bash
+# time a single method
 uv run -m cfm.cli benchmark --problem star --method ldf --num-samples 20
-```
 
-Reproduce Table 1 with a declarative sweep. Each case writes a JSON result to
-`results/`, and the table is rendered from those files rather than scraped
-from stdout:
-
-```bash
+# Table 1
 uv run -m cfm.cli sweep experiments/table1.toml
 uv run -m cfm.cli table --format markdown   # or latex
 ```
 
-Cases whose exact configuration already has a result are skipped, so an
-interrupted sweep resumes; pass `--force` to re-run them.
-
-A config is a list of `[[block]]` sections, each its own
-problems x methods x steps grid. One table needs more than one grid: the
-obstacle rows run their own scenes, at a much finer step size than the 2-D
-and MNIST rows, and a block carries its own `problem_options`,
-`num_samples` and `problem_label` so the same problem can appear twice under
-two scenes -- or, as the star does, under its equality and its inequality
-constraint. A method that cannot handle a block's constraint drops out of
-that block rather than erroring, which is why PCFM and PiGDM appear on the
-star's equality rows and not its inequality ones. A config with no
-`[[block]]` is itself the single block.
-
-A row of the table is named by a `[[variants]]` entry: a registered method
-with the gains that define the row pinned.
-
-```toml
-[[variants]]
-name = "ldf_projected"
-method = "ldf"
-label = "LDF + projection"
-gains = { num_projection_iters = 2 }
-```
-
-That is how one method appears on two rows -- LDF as the flow alone, and LDF
-followed by the Gauss-Newton projection -- without being registered twice.
-Each row gets its own label and its own result file. A `[[gains]]` override
-may name a variant, or name the method and reach every one of its rows;
-`method = ["ldf", "penalty"]` reaches several at once. A variant's own gains
-are applied last, so tuning `ldf` tunes both LDF rows rather than collapsing
-them into one.
-
-`experiments/baseline.json` records per-method timing and violation from
-before the repository was reorganized. `--check-baseline` fails the sweep if
-any case regressed:
-
-```bash
-uv run -m cfm.cli sweep experiments/table1.toml --check-baseline
-```
+Each sweep case writes a JSON file to `results/`. Completed cases are skipped
+unless `--force` is passed. `--check-baseline` fails if any case regressed
+relative to `experiments/baseline.json`. See `experiments/table1.toml` for the
+config format.
 
 ## Paper reproduction
 
 ```bash
-# train unconstrained flow matching models
-uv run -m cfm.cli train --problem star
-uv run -m cfm.cli train --problem mnist
-uv run -m cfm.cli train --problem obstacles
-uv run -m cfm.cli train --problem walker2d
-uv run -m cfm.cli train --problem hopper
-
-# create and save figures to plots/figures
-# (the locomotion phase portraits need `uv sync --group render`)
-uv run python plots.py --plot all --regenerate
-
-# Table 1
+for p in star mnist obstacles walker2d hopper; do
+    uv run -m cfm.cli train --problem $p
+done
+uv run python plots.py --plot all --regenerate   # figures -> plots/figures
 uv run -m cfm.cli sweep experiments/table1.toml
 uv run -m cfm.cli table
 ```
 
-## Notes for contributors
+## Contributing
 
-**Adding a method.** Implement
-`generate(model, normalizer, constraint, **cfg) -> Samples` in a module under
-`cfm/methods/`, then add a `Method` entry to `cfm/methods/__init__.py`. The
-CLI, the sweep and the parameterized contract tests in
-`tests/test_methods.py` pick it up with no further wiring.
-
-**Adding a problem.** Add a `Problem` entry in a module under `problems/` and
-list it in `problems/__init__.py`.
-
-**Golden tests.** `tests/goldens/*.npy` pin the numerical output of every
-method on a fixed tiny model and seed. They exist so that refactoring can be
-verified rather than reviewed, and a failure means an algorithm changed. If a
-change is intended, regenerate with `uv run python -m tests.make_goldens` and
-review the array diff like any other change.
+- **New method:** add a module under `cfm/methods/` exposing
+  `generate(model, normalizer, constraint, **cfg) -> Samples`, and register it
+  in `cfm/methods/__init__.py`.
+- **New problem:** add a `Problem` under `problems/` and register it in
+  `problems/__init__.py`.
+- **Golden tests:** `tests/goldens/*.npy` pin each method's output on a tiny
+  fixed model. If a change is intended, regenerate with
+  `uv run python -m tests.make_goldens`.

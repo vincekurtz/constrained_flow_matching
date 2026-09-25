@@ -1,15 +1,4 @@
-"""Fixed generator invocations used to pin numerical behavior.
-
-Each case builds a tiny model, normalizer and constraint from a fixed seed and
-calls one generator with fixed arguments. ``tests/goldens/<name>.npy`` holds
-the sample array that call produced on the pre-refactor code
-(``a1dae8a``); ``tests/test_goldens.py`` re-runs each case and compares.
-
-The *data* files are the contract. This module is expected to be edited as
-the APIs move underneath it -- that is the point: if a case still reproduces
-its golden after being rewritten against a new API, the algorithm survived
-the move.
-"""
+"""Fixed generator calls whose outputs are pinned in ``tests/goldens/``."""
 
 import jax
 import jax.numpy as jnp
@@ -25,23 +14,17 @@ from cfm.models.normalizer import Normalizer
 
 GOLDEN_DIR = "tests/goldens"
 
-# Kept small so the whole suite stays quick; large enough that a batch of
-# samples exercises the vmapped paths rather than a single trajectory.
 NUM_SAMPLES = 8
 DT = 0.01
 
-# An untrained model has an unhelpful vector field, so the constrained flows
-# diverge under the penalty weights the real examples use. These values were
-# picked as the strongest settings that stay finite here while still pulling
-# samples visibly onto the manifold -- and, for the equality pair, while
-# keeping LDF measurably ahead of penalty-only.
+# The untrained model diverges under the examples' penalty weights.
 PENALTY_WEIGHT = 1.5
 RESCALE_FACTOR = 1.0
 INEQ_RESCALE_FACTOR = 10.0
 
 
 def make_model():
-    """A tiny 2-D flow model. Deterministic given the fixed Rngs seed."""
+    """A tiny 2-D flow model."""
     return FlowMLP(
         data_shape=(2,),
         time_embedding_size=8,
@@ -77,8 +60,8 @@ def _rng():
     return jax.random.key(0)
 
 
-# Each entry: name -> zero-arg callable returning the final sample array.
-# Argument values are frozen deliberately; changing one invalidates its golden.
+# name -> zero-arg callable returning the final samples. Changing an
+# argument invalidates its golden.
 CASES = {}
 
 
@@ -118,7 +101,6 @@ def _ldf_equality_projected():
 
 @case("penalty_equality")
 def _penalty_equality():
-    # The penalty-only ablation: rescale_factor = 0 freezes the multipliers.
     return generate(
         make_model(), make_normalizer(), circle(),
         num_samples=NUM_SAMPLES, dt=DT, rng=_rng(),

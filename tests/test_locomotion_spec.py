@@ -1,13 +1,4 @@
-"""The roof constraint the Walker2D and Hopper examples impose.
-
-A sample is a trajectory window laid out actions-first, so the column the
-torso height lives in is an offset into a 23- (or 14-) wide vector. An
-off-by-one there would silently constrain a knee angle instead of the torso,
-and every downstream number would still look plausible. These tests pin the
-layout, the residual, and which columns it is allowed to touch.
-
-Nothing here builds a model, runs a generator, or reads the D4RL files.
-"""
+"""The Walker2D and Hopper roof constraint and transition layout."""
 
 import jax
 import jax.numpy as jnp
@@ -64,14 +55,13 @@ def test_indices_are_inside_a_transition(spec):
 
 @pytest.mark.parametrize("spec", SPEC_LIST, ids=IDS)
 def test_residual_has_one_row_per_timestep(spec):
-    """The constraint is a (horizon,) vector, not a single scalar."""
     h = make_constraint_fn(spec)(jnp.zeros((HORIZON, spec.transition_dim)))
     assert h.shape == (HORIZON,)
 
 
 @pytest.mark.parametrize("spec", SPEC_LIST, ids=IDS)
 def test_residual_is_the_height_rule(spec):
-    """h = z + phi * vz - h_r, exactly."""
+    """h = z + phi * vz - h_r."""
     z, vz = 1.1, 0.7
     h = make_constraint_fn(spec)(window(spec, z=z, vz=vz))
     expected = z + spec.phi * vz - spec.height_limit
@@ -80,7 +70,6 @@ def test_residual_is_the_height_rule(spec):
 
 @pytest.mark.parametrize("spec", SPEC_LIST, ids=IDS)
 def test_residual_reads_only_z_and_vz(spec):
-    """Filling every other column with junk must not move the residual."""
     fn = make_constraint_fn(spec)
     clean = window(spec, z=1.2, vz=0.3)
     noisy = window(spec, z=1.2, vz=0.3, fill=7.5)
@@ -89,7 +78,7 @@ def test_residual_reads_only_z_and_vz(spec):
 
 @pytest.mark.parametrize("spec", SPEC_LIST, ids=IDS)
 def test_gradient_touches_only_two_columns(spec):
-    """What LDF's VJP pushes on: 1 at the height, phi at the velocity."""
+    """d h / d x is 1 at the height and phi at the velocity."""
     fn = make_constraint_fn(spec)
     grad = jax.grad(lambda x: jnp.sum(fn(x)))(
         jnp.zeros((HORIZON, spec.transition_dim))
@@ -112,11 +101,7 @@ def test_a_low_window_is_feasible_and_a_high_one_is_not(spec):
 
 @pytest.mark.parametrize("spec", SPEC_LIST, ids=IDS)
 def test_the_velocity_term_flips_feasibility(spec):
-    """The roof is speed-dependent, not just z <= h_r.
-
-    At a height just under the roof, rising fast enough is a violation and
-    falling is not -- which is the whole point of the phi term.
-    """
+    """Just under the roof, rising fast violates and falling does not."""
     fn = make_constraint_fn(spec)
     just_under = spec.height_limit - 0.05
     rising = fn(window(spec, z=just_under, vz=2.0))
@@ -134,7 +119,6 @@ def test_constraint_is_an_inequality_with_a_readable_name(spec):
 
 @pytest.mark.parametrize("spec", SPEC_LIST, ids=IDS)
 def test_violation_is_zero_when_feasible_and_positive_when_not(spec):
-    """Constraint.violation is the largest positive residual."""
     constraint = make_constraint(spec)
     assert float(constraint.violation(window(spec, z=0.5))) == 0.0
     over = spec.height_limit + 0.25
@@ -154,7 +138,6 @@ def test_violations_are_batched(spec):
 
 @pytest.mark.parametrize("spec", SPEC_LIST, ids=IDS)
 def test_options_override_the_defaults(spec):
-    """A lower roof is strictly stricter, and the name reports what was used."""
     lower = spec.height_limit - 0.3
     strict = make_constraint(spec, height_limit=lower)
     default = make_constraint(spec)
@@ -172,7 +155,6 @@ def test_options_override_the_defaults(spec):
 
 @pytest.mark.parametrize("spec", SPEC_LIST, ids=IDS)
 def test_barrier_is_the_negated_residual(spec):
-    """The paper's sign convention, used by the figures."""
     x = window(spec, z=1.2, vz=0.4)
     np.testing.assert_allclose(
         np.asarray(barrier(spec, x)),

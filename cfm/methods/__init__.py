@@ -1,10 +1,4 @@
-"""The registry of generation methods.
-
-Adding a baseline means adding one :class:`Method` here. Everything that
-iterates over methods -- the benchmark, the sweep, the figures, and the
-parameterized contract tests -- reads this registry, so a new entry is picked
-up everywhere at once instead of being wired into six call sites.
-"""
+"""Registry of constrained generation methods."""
 
 from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, FrozenSet
@@ -26,9 +20,7 @@ class Method:
         generate: ``(model, normalizer, constraint, **cfg) -> Samples``.
         supports: Constraint kinds this method can handle.
         defaults: Default hyperparameters.
-        locked: Hyperparameters this method fixes, which config may not
-            override. Used by the penalty-only ablation to keep itself from
-            being turned back into full LDF by a stray flag.
+        locked: Hyperparameters that config may not override.
     """
 
     name: str
@@ -44,8 +36,7 @@ class Method:
     def config(self, **overrides) -> Dict[str, Any]:
         """Resolve hyperparameters: defaults, then overrides, then locked.
 
-        ``locked`` is applied last so it wins unconditionally. Overrides of
-        ``None`` are dropped, which lets argparse defaults mean "unset".
+        ``None`` overrides are dropped so argparse defaults mean "unset".
         """
         cfg = dict(self.defaults)
         cfg.update({k: v for k, v in overrides.items() if v is not None})
@@ -72,7 +63,6 @@ class Method:
         )
 
 
-# Shared gains for the dual flow and its ablation, so the two cannot drift.
 _LDF_DEFAULTS = {
     "penalty_weight": 5.0,
     "rescale_factor": 1.0,
@@ -89,12 +79,7 @@ LDF = Method(
     defaults=dict(_LDF_DEFAULTS),
 )
 
-# The penalty-only ablation. rescale_factor = 0 freezes the multipliers at
-# their zero initialization, so the drift collapses to v - grad g^T g: a pure
-# quadratic penalty with no dual dynamics. It delegates to LDF rather than
-# reimplementing anything, so the ablation cannot drift from the method it
-# ablates. `locked` keeps a stray --rescale-factor from silently promoting it
-# back to full LDF and producing two identical rows in the table.
+# LDF with frozen (zero) multipliers, i.e. a pure quadratic penalty.
 PENALTY = Method(
     name="penalty",
     label="Penalty only",
@@ -145,13 +130,12 @@ METHODS: Dict[str, Method] = {
     m.name: m for m in (LDF, PENALTY, PCFM, PIGDM, CBF)
 }
 
-# Methods that take a `dt`. PCFM steps a fixed grid instead, so the sweep
-# translates a step count into `num_steps` for it and `dt` for everyone else.
+# Methods that take `dt`; PCFM takes `num_steps` instead.
 USES_DT = frozenset({"ldf", "penalty", "pigdm", "cbf"})
 
 
 def get(name: str) -> Method:
-    """Look up a method by name, with a helpful error for typos."""
+    """Look up a method by name."""
     try:
         return METHODS[name]
     except KeyError:
@@ -162,7 +146,7 @@ def get(name: str) -> Method:
 
 
 def supporting(constraint: Constraint):
-    """Every registered method that can handle this constraint."""
+    """All methods that support this constraint."""
     return [m for m in METHODS.values() if m.supports_constraint(constraint)]
 
 

@@ -1,9 +1,4 @@
-"""Integrity of the method and problem registries.
-
-Cheap checks that catch the kind of typo -- a gain keyed on a method that
-does not exist, a problem whose constraint no method can handle -- that would
-otherwise surface as a confusing failure halfway through a sweep.
-"""
+"""Integrity of the method and problem registries."""
 
 import pytest
 
@@ -32,7 +27,6 @@ def test_get_reports_unknown_methods():
 
 
 def test_locked_values_appear_in_defaults():
-    """A locked parameter must also be the default, or config() contradicts."""
     for method in methods.METHODS.values():
         for key, value in method.locked.items():
             assert method.defaults.get(key) == value, (
@@ -42,11 +36,9 @@ def test_locked_values_appear_in_defaults():
 
 
 def test_penalty_is_ldf_with_frozen_multipliers():
-    """The ablation must delegate, not reimplement."""
     assert methods.PENALTY.generate is methods.LDF.generate
     assert methods.PENALTY.locked == {"rescale_factor": 0.0}
     assert methods.PENALTY.defaults["rescale_factor"] == 0.0
-    # Everything else should match LDF, so the comparison is like-for-like.
     shared = set(methods.LDF.defaults) - {"rescale_factor"}
     for key in shared:
         assert methods.PENALTY.defaults[key] == methods.LDF.defaults[key]
@@ -67,7 +59,6 @@ def test_locked_parameter_cannot_be_overridden():
 
 
 def test_locked_parameter_accepts_a_matching_value():
-    """Passing the locked value explicitly is harmless, not an error."""
     assert methods.PENALTY.config(rescale_factor=0.0)["rescale_factor"] == 0.0
 
 
@@ -85,7 +76,6 @@ def test_problem_is_well_formed(name):
 
 @pytest.mark.parametrize("name", problems.names())
 def test_problem_gains_name_registered_methods(name):
-    """A gain keyed on a nonexistent method would silently never apply."""
     problem = problems.get(name)
     for method_name in problem.method_gains:
         assert method_name in methods.METHODS, (
@@ -106,7 +96,6 @@ def test_constrained_problems_have_a_usable_method(name):
 
 @pytest.mark.parametrize("name", problems.names())
 def test_gains_are_accepted_by_their_methods(name):
-    """Every gain override must survive config() for that method."""
     problem = problems.get(name)
     for method_name, gains in problem.method_gains.items():
         methods.get(method_name).config(**gains)
