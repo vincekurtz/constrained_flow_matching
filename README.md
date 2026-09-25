@@ -126,7 +126,7 @@ Trained models are saved to `data/<problem>_model.pkl` (override with
 # time a single method
 uv run -m cfm.cli benchmark --problem star --method ldf --num-samples 20
 
-# Table 1
+# time all methods and all examples
 uv run -m cfm.cli sweep experiments/table1.toml
 uv run -m cfm.cli table --format markdown   # or latex
 ```
