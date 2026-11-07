@@ -33,20 +33,38 @@ class Problem:
             None for unconstrained problems.
         plot: ``(problem, samples, constraint, **opts) -> None``.
         method_gains: Per-method gain overrides, keyed by method name.
+        unconstrained_gains: Defaults for the unconstrained sampler.
+        method_constraint_options: Per-method constraint representations.
         options: Extra CLI options, as ``{flag: {argparse kwargs}}``.
+        train: None for inference-only pretrained examples.
+        supported_methods: Optional restriction for expensive examples.
+        save_figure: Optional ``(problem, samples, constraint, **opts)``
+            exporter accepting ``output_path`` and ``show=False``.
+        adapt_model: Optional ``(model, normalizer, method_name)`` adapter
+            returning a model/normalizer pair for inference.
+        retain_trajectory: Whether the CLI should retain trajectories.
+            False keeps only a final snapshot for large image examples.
     """
 
     name: str
     label: str
-    make_dataset: Callable[[], Any]
+    make_dataset: Optional[Callable[[], Any]]
     make_model: Callable[[], Any]
-    train: TrainConfig
+    train: Optional[TrainConfig]
     plot: Callable[..., None]
     make_constraint: Optional[Callable[..., Constraint]] = None
     method_gains: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    unconstrained_gains: Dict[str, Any] = field(default_factory=dict)
+    method_constraint_options: Dict[str, Dict[str, Any]] = field(
+        default_factory=dict
+    )
     options: Dict[str, Dict[str, Any]] = field(default_factory=dict)
     default_num_samples: int = 1000
     checkpoint: str = ""
+    supported_methods: Optional[tuple[str, ...]] = None
+    save_figure: Optional[Callable[..., None]] = None
+    adapt_model: Optional[Callable[..., tuple]] = None
+    retain_trajectory: bool = True
 
     @property
     def checkpoint_path(self) -> str:
@@ -60,11 +78,24 @@ class Problem:
         """Gain overrides for one method, empty when it uses the defaults."""
         return dict(self.method_gains.get(method_name, {}))
 
+    def constraint_for(self, method_name: str, **options) -> Constraint:
+        """Build a constraint with the method's representation defaults."""
+        return self.make_constraint(**{
+            **self.method_constraint_options.get(method_name, {}), **options,
+        })
+
+    def model_for(self, method_name, model, normalizer):
+        """Apply an example's model-coordinate adapter, if provided."""
+        if self.adapt_model is None:
+            return model, normalizer
+        return self.adapt_model(model, normalizer, method_name)
+
 
 def _registry() -> Dict[str, Problem]:
     # Lazy, so importing one problem doesn't import every dataset.
     from problems import (
         bimodal,
+        imagenet,
         locomotion,
         mnist,
         obstacles,
@@ -79,6 +110,7 @@ def _registry() -> Dict[str, Problem]:
         star.PROBLEM,
         unit_circle.PROBLEM,
         mnist.PROBLEM,
+        imagenet.PROBLEM,
         obstacles.PROBLEM,
         *locomotion.PROBLEMS,
     )

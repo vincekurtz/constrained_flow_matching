@@ -1,0 +1,82 @@
+[
+  {
+    "checkpoint_sha256": "5f6449c6b5f672465dd497870f8435dc13b8c57d44f1078c11a604899498a981",
+    "reference_sha256": "640d443d50af73b976c58ff313ec024c13c674397faf8cf3753475e65e41b27b",
+    "mask_sha256": "98e57eb9e93e955c6bf24b9fdf897aa4cd601df14118d331e7a39bbe1d3aadb7",
+    "method": "unconstrained",
+    "seed": 2,
+    "settings": {
+      "dt": 0.001
+    },
+    "adapter": {
+      "coordinates": "native",
+      "data_scale": 0.5,
+      "class_index": 975,
+      "cfg": 1.0,
+      "noise_scale": 2.0,
+      "t_eps": 0.005,
+      "precision": "highest"
+    },
+    "seconds": 54.806603652003105,
+    "min": -0.1294822096824646,
+    "max": 1.0746865272521973
+  },
+  {
+    "checkpoint_sha256": "5f6449c6b5f672465dd497870f8435dc13b8c57d44f1078c11a604899498a981",
+    "reference_sha256": "640d443d50af73b976c58ff313ec024c13c674397faf8cf3753475e65e41b27b",
+    "mask_sha256": "98e57eb9e93e955c6bf24b9fdf897aa4cd601df14118d331e7a39bbe1d3aadb7",
+    "method": "pigdm",
+    "seed": 2,
+    "settings": {
+      "guidance_scale": 0.6,
+      "eps_reg": 1e-08,
+      "dt": 0.0005
+    },
+    "adapter": {
+      "coordinates": "native",
+      "data_scale": 0.5,
+      "class_index": 975,
+      "cfg": 1.0,
+      "noise_scale": 2.0,
+      "t_eps": 0.005,
+      "precision": "highest"
+    },
+    "seconds": 148.6067938030028,
+    "min": -0.005214810371398926,
+    "max": 1.004709243774414,
+    "constraint": "RGB pixels fixed (norm)",
+    "observed_max_error": 0.014640092849731445,
+    "observed_mae": 0.0006974610150791705
+  },
+  {
+    "checkpoint_sha256": "5f6449c6b5f672465dd497870f8435dc13b8c57d44f1078c11a604899498a981",
+    "reference_sha256": "640d443d50af73b976c58ff313ec024c13c674397faf8cf3753475e65e41b27b",
+    "mask_sha256": "98e57eb9e93e955c6bf24b9fdf897aa4cd601df14118d331e7a39bbe1d3aadb7",
+    "method": "ldf",
+    "seed": 2,
+    "settings": {
+      "penalty_weight": 17.0,
+      "rescale_factor": 0.0034602076124567475,
+      "rescale_exponent": 2.0,
+      "slack": "closed_form",
+      "num_projection_iters": 0,
+      "dt": 0.00125
+    },
+    "adapter": {
+      "coordinates": "ldf",
+      "data_scale": 0.5,
+      "class_index": 975,
+      "cfg": 1.0,
+      "noise_scale": 2.0,
+      "t_eps": 0.005,
+      "precision": "highest",
+      "initial_image_scale": 0.02
+    },
+    "seconds": 48.987637973001256,
+    "min": -0.11143779754638672,
+    "max": 1.018262505531311,
+    "constraint": "RGB pixels fixed (pixels)",
+    "observed_max_error": 0.00802166759967804,
+    "observed_mae": 0.0005879587261006236
+  }
+]

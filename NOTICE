@@ -1,0 +1,7 @@
+cfm/models/jit_image.py is a modified JAX inference implementation of JiT
+from https://github.com/LTH14/JiT, commit
+cbc743a2ada5e9762697da2c83f8c4f8379e8c17 (model_jit.py and util/rope.py).
+Copyright (c) 2025 Tianhong Li.
+Licensed under the MIT License; see licenses/JiT-MIT.txt.
+The small regression fixture is generated with the upstream implementation.
+Pretrained weights are downloaded separately, not included in the repository.

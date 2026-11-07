@@ -66,11 +66,14 @@ def test_locked_parameter_accepts_a_matching_value():
 def test_problem_is_well_formed(name):
     problem = problems.get(name)
     assert problem.label
-    assert callable(problem.make_dataset)
+    if problem.train is not None:
+        assert callable(problem.make_dataset)
+        assert problem.train.num_epochs > 0
+    else:
+        assert problem.make_dataset is None
     assert callable(problem.make_model)
     assert callable(problem.plot)
     assert problem.checkpoint_path.endswith(".pkl")
-    assert problem.train.num_epochs > 0
     assert problem.default_num_samples > 0
 
 

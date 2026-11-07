@@ -20,6 +20,7 @@ import jax.numpy as jnp
 import problems
 from cfm import methods, sweep, training
 from cfm.core import checkpoint
+from cfm.core.solve import Samples
 from cfm.methods.ldf import generate_unconstrained
 
 # Passed to the method only when set, so registry defaults apply otherwise.
@@ -82,6 +83,11 @@ def _generation_overrides(args):
 
 def _resolve(problem, method, args):
     """Merge registry defaults, problem gains, then CLI overrides."""
+    if (problem.supported_methods is not None
+            and method.name not in problem.supported_methods):
+        raise ValueError(
+            f"{problem.name} supports: {', '.join(problem.supported_methods)}"
+        )
     cfg = problem.gains_for(method.name)
     cfg.update({
         k: v for k, v in _generation_overrides(args).items() if v is not None
@@ -102,6 +108,11 @@ def _resolve(problem, method, args):
 
 def cmd_train(args):
     problem = problems.get(args.problem)
+    if problem.train is None:
+        raise SystemExit(
+            f"{problem.name} uses pretrained weights; run "
+            f"`uv run -m experiments.prepare_{problem.name} --download`"
+        )
     path = Path(args.save_path or problem.checkpoint_path)
     cfg = problem.train
 
@@ -121,35 +132,65 @@ def cmd_train(args):
     print(f"Saved trained model and normalizer to {path}")
 
 
+def _load_checkpoint(problem, path):
+    try:
+        return checkpoint.load(path)
+    except FileNotFoundError:
+        if problem.train is None:
+            raise SystemExit(
+                f"No pretrained checkpoint at {path}; run "
+                f"`uv run -m experiments.prepare_{problem.name} --download`"
+            ) from None
+        raise
+
+
 def cmd_generate(args):
     problem = problems.get(args.problem)
     path = Path(args.save_path or problem.checkpoint_path)
-    model, normalizer = checkpoint.load(path)
+    if args.method is not None:
+        method = methods.get(args.method)
+        cfg = _resolve(problem, method, args)
+        constraint = problem.constraint_for(
+            method.name,
+            **_problem_option_values(args, problem)
+        )
+    else:
+        cfg = {"dt": 0.01, **problem.unconstrained_gains}
+        if args.dt is not None:
+            cfg["dt"] = args.dt
+    model, normalizer = _load_checkpoint(problem, path)
+    model, normalizer = problem.model_for(args.method, model, normalizer)
     num_samples = args.num_samples or problem.default_num_samples
     rng = jax.random.key(args.seed)
 
+    def run(sample_fn):
+        if problem.retain_trajectory:
+            return sample_fn(rng)
+
+        def final(key):
+            result = sample_fn(key)
+            return result.x, result.num_steps
+
+        x, steps = jax.jit(final)(rng)
+        return Samples(x, x[None], steps)
+
     if args.method is None:
         print(f"Generating {num_samples} unconstrained samples ...")
-        samples = generate_unconstrained(
+        samples = run(lambda key: generate_unconstrained(
             model, normalizer, num_samples=num_samples,
-            dt=args.dt if args.dt is not None else 0.01, rng=rng,
-        )
+            rng=key, **cfg,
+        ))
         constraint = None
     else:
-        method = methods.get(args.method)
-        constraint = problem.make_constraint(
-            **_problem_option_values(args, problem)
-        )
-        cfg = _resolve(problem, method, args)
         print(f"Generating {num_samples} samples with {method.label}")
         print(f"  constraint: {constraint.name} ({constraint.kind})")
         print(f"  settings:   {cfg}")
 
         start = time.time()
-        samples = method.run(
+        samples = run(lambda key: method.run(
             model, normalizer, constraint,
-            num_samples=num_samples, rng=rng, **cfg,
-        )
+            num_samples=num_samples, rng=key, **cfg,
+        ))
         jax.block_until_ready(samples.x)
         print(f"  took {time.time() - start:.2f} s")
 
@@ -158,17 +199,61 @@ def cmd_generate(args):
               f"max={float(jnp.nanmax(v)):.3e}")
 
     if not args.no_plot:
-        problem.plot(problem, samples, constraint)
+        problem.plot(
+            problem, samples, constraint,
+            **_problem_option_values(args, problem),
+        )
+
+    if args.output_dir:
+        output_dir = Path(args.output_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        import numpy as np
+
+        # Preserve raw floating point output; PNG clipping is for display only.
+        np.save(output_dir / "samples.npy", np.asarray(samples.x))
+        metadata = {
+            "problem": problem.name, "method": args.method,
+            "checkpoint": str(path),
+            "seed": args.seed, "num_samples": num_samples,
+            "model_type": type(model).__name__,
+            "normalizer_type": type(normalizer).__name__,
+            "trajectory": ("full" if problem.retain_trajectory
+                           else "final_snapshot"),
+            "sample_min": float(jnp.min(samples.x)),
+            "sample_max": float(jnp.max(samples.x)),
+            "options": _problem_option_values(args, problem),
+            "settings": (method.config(**cfg) if args.method
+                         else cfg),
+        }
+        if constraint is not None:
+            metadata["constraint"] = constraint.name
+            metadata["violations"] = np.asarray(v).tolist()
+        (output_dir / "metrics.json").write_text(
+            json.dumps(metadata, indent=2, default=lambda value: (
+                np.asarray(value).tolist()
+                if isinstance(value, (jax.Array, np.ndarray)) else str(value)
+            )) + "\n"
+        )
+        if problem.save_figure is not None:
+            problem.save_figure(
+                problem, samples, constraint,
+                output_path=output_dir / "grid.png", show=False,
+                **_problem_option_values(args, problem),
+            )
+        print(f"Saved results to {output_dir}")
 
 
 def cmd_benchmark(args):
     """Time a method one sample at a time, and record its violation."""
     problem = problems.get(args.problem)
     method = methods.get(args.method)
-    model, normalizer = checkpoint.load(
-        Path(args.save_path or problem.checkpoint_path)
+    cfg = _resolve(problem, method, args)
+    model, normalizer = _load_checkpoint(
+        problem, Path(args.save_path or problem.checkpoint_path)
     )
-    constraint = problem.make_constraint(
+    model, normalizer = problem.model_for(method.name, model, normalizer)
+    constraint = problem.constraint_for(
+        method.name,
         **_problem_option_values(args, problem)
     )
     if not method.supports_constraint(constraint):
@@ -177,8 +262,6 @@ def cmd_benchmark(args):
             f"constraints; supported here: "
             f"{', '.join(m.name for m in methods.supporting(constraint))}"
         )
-
-    cfg = _resolve(problem, method, args)
 
     def _gen(rng):
         return method.run(
@@ -280,6 +363,8 @@ def cmd_list(args):
             continue
         constraint = p.make_constraint()
         usable = ", ".join(m.name for m in methods.supporting(constraint))
+        if p.supported_methods is not None:
+            usable = ", ".join(p.supported_methods)
         print(f"  {name:12s} {p.label:22s} {constraint.kind:10s} {usable}")
 
 
@@ -318,6 +403,9 @@ def build_parser():
     p_gen.add_argument("--seed", type=int, default=0)
     p_gen.add_argument("--no-plot", action="store_true",
                        help="Skip plotting; just report the numbers.")
+    p_gen.add_argument("--output-dir", type=str, default=None,
+                       help="Save raw samples, metrics, and a figure when "
+                            "the problem provides an exporter.")
     p_gen.set_defaults(func=cmd_generate)
 
     p_bench = sub.add_parser(

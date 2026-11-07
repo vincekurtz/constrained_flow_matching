@@ -154,6 +154,9 @@ def build_cases(config: Dict[str, Any]) -> List[Case]:
                 method = methods.get(method_name)
                 if not method.supports_constraint(constraint):
                     continue
+                if (problem.supported_methods is not None
+                        and method_name not in problem.supported_methods):
+                    continue
 
                 for steps in block["steps"]:
                     gains = problem.gains_for(method_name)
@@ -201,7 +204,8 @@ def run_case(case: Case, results_dir: Path = RESULTS_DIR) -> Dict[str, Any]:
     problem = problems.get(case.problem)
     method = methods.get(case.method)
     model, normalizer = checkpoint.load(problem.checkpoint_path)
-    constraint = problem.make_constraint(**case.problem_options)
+    model, normalizer = problem.model_for(case.method, model, normalizer)
+    constraint = problem.constraint_for(case.method, **case.problem_options)
 
     cfg = dict(case.gains)
     if case.method in methods.USES_DT:
