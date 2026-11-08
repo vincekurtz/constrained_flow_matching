@@ -224,6 +224,37 @@ Raw fixed-pixel errors for this case (RGB units):
 | PiGDM | 0.000697 | 0.014640 |
 | LDF | 0.000588 | 0.008022 |
 
+For five **unselected random references and masks**, use the same GPU
+settings above and run:
+
+```bash
+uv run -m experiments.imagenet_inpainting_gallery --stage references
+uv run -m experiments.imagenet_inpainting_gallery --stage pigdm
+uv run -m experiments.imagenet_inpainting_gallery --stage ldf
+uv run -m experiments.imagenet_inpainting_gallery --stage figure
+```
+
+The experiment seed defaults to `20261107`. The script records all five
+reference seeds, independent sampling seeds, and random 192 × 192 interior
+mask positions in `results/imagenet_gallery/plan.json` before sampling.
+Each reference is a new unconstrained sample from the pretrained model.
+Both methods use the same sampling seed within each case and the committed
+settings above, with no per-case tuning or removal of poor outputs. Raw
+samples, binary masks, masked inputs, hashes, and pixel-error measurements
+are saved for every case. The saved 8-bit reference PNGs supply the fixed
+pixel targets; constrained outputs are kept as raw floating-point arrays.
+A compiled sampler is reused by passing the
+reference and observed pixel indices as inputs; the equality constraints
+and core samplers are unchanged.
+
+The four-column comparison is saved to
+`plots/figures/imagenet_inpainting_five.png`, with its complete experiment
+record in the adjacent JSON file. This gallery checks generalization beyond
+the selected example; low fixed-pixel errors do not guarantee a good fill.
+The recorded five-case run contains visible fill artifacts in both methods.
+
+![Five random inpainting cases](plots/figures/imagenet_inpainting_five.png)
+
 Offline tests require no pretrained checkpoint, network, or GPU:
 
 ```bash

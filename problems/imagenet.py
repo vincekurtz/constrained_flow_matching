@@ -81,10 +81,20 @@ def fixed_pixel_constraint(reference, observed, *, reduction="pixels"):
     the same correction as the full vector r, with only one Jacobian row.
     This reduction is specific to PiGDM; it is not equivalent LDF dynamics.
     """
-    if reduction not in ("pixels", "norm"):
-        raise ValueError(f"Unknown fixed-pixel reduction: {reduction}")
     observed = np.broadcast_to(np.asarray(observed)[..., None], reference.shape)
     indices = jnp.asarray(np.flatnonzero(observed))
+    return indexed_pixel_constraint(reference, indices, reduction=reduction)
+
+
+def indexed_pixel_constraint(reference, indices, *, reduction="pixels"):
+    """The same equalities with precomputed flat RGB indices.
+
+    Passing indices and reference as JIT arguments lets repeated experiments
+    reuse a compiled sampler for different masks with the same pixel count.
+    Indices must select distinct RGB values, as in ``fixed_pixel_constraint``.
+    """
+    if reduction not in ("pixels", "norm"):
+        raise ValueError(f"Unknown fixed-pixel reduction: {reduction}")
     target = jnp.asarray(reference).ravel()[indices]
 
     def residual(x):
