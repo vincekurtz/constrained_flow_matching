@@ -1,0 +1,403 @@
+{
+  "selection_rule": "Minimum missing-region FID across all five cases",
+  "role": "Calibration only; the new 256-case study is separate",
+  "selected": "ten_steps",
+  "trials": [
+    {
+      "name": "fewer_steps",
+      "settings": {
+        "num_steps": 20,
+        "correction_weight": 0.0,
+        "num_correction_iters": 1,
+        "correction_lr": 0.1,
+        "num_final_projection_iters": 0,
+        "eps_reg": 1e-10,
+        "num_projection_iters": 1
+      },
+      "metrics": {
+        "method": "pcfm",
+        "planned": 5,
+        "successful": 5,
+        "paired_n": 5,
+        "fid_full": 217.88045246409274,
+        "paired_kid_full": 0.029582825592252206,
+        "fid_hole": 419.2963752622933,
+        "paired_kid_hole": 0.1686495910807451,
+        "observed_mae": 1.0673806531430631e-08,
+        "observed_max_error": 7.450580596923828e-08,
+        "hole_rmse": 0.39079294509076445,
+        "out_of_range_fraction": 0.03709437052408854,
+        "seconds_median": 0.25585805899027037
+      }
+    },
+    {
+      "name": "five_steps",
+      "settings": {
+        "num_steps": 5,
+        "correction_weight": 0.0,
+        "num_correction_iters": 1,
+        "correction_lr": 0.1,
+        "num_final_projection_iters": 0,
+        "eps_reg": 1e-10,
+        "num_projection_iters": 1
+      },
+      "metrics": {
+        "method": "pcfm",
+        "planned": 5,
+        "successful": 5,
+        "paired_n": 5,
+        "fid_full": 148.30749604461406,
+        "paired_kid_full": 0.009689231901553862,
+        "fid_hole": 426.2229025961265,
+        "paired_kid_hole": 0.07466311585648386,
+        "observed_mae": 1.0255618662719799e-08,
+        "observed_max_error": 8.940696716308594e-08,
+        "hole_rmse": 0.24875661809019464,
+        "out_of_range_fraction": 3.814697265625e-06,
+        "seconds_median": 0.16377362099592574
+      }
+    },
+    {
+      "name": "five_steps_corrected",
+      "settings": {
+        "num_steps": 5,
+        "correction_weight": 0.1,
+        "num_correction_iters": 10,
+        "correction_lr": 0.1,
+        "num_final_projection_iters": 0,
+        "eps_reg": 1e-10,
+        "num_projection_iters": 1
+      },
+      "metrics": {
+        "method": "pcfm",
+        "planned": 5,
+        "successful": 5,
+        "paired_n": 5,
+        "fid_full": 162.85745656869287,
+        "paired_kid_full": 0.01394666893439267,
+        "fid_hole": 389.7116664243184,
+        "paired_kid_hole": 0.0780782377405093,
+        "observed_mae": 1.0119502032025732e-08,
+        "observed_max_error": 5.960464477539063e-08,
+        "hole_rmse": 0.2486710383033414,
+        "out_of_range_fraction": 6.7901611328125e-05,
+        "seconds_median": 1.4203160999968532
+      }
+    },
+    {
+      "name": "more_steps",
+      "settings": {
+        "num_steps": 500,
+        "correction_weight": 0.0,
+        "num_correction_iters": 1,
+        "correction_lr": 0.1,
+        "num_final_projection_iters": 0,
+        "eps_reg": 1e-10,
+        "num_projection_iters": 1
+      },
+      "metrics": {
+        "method": "pcfm",
+        "planned": 5,
+        "successful": 5,
+        "paired_n": 5,
+        "fid_full": 209.98947210596543,
+        "paired_kid_full": 0.0408449866502288,
+        "fid_hole": 457.77365643192326,
+        "paired_kid_hole": 0.25754359743315813,
+        "observed_mae": 1.1063012938062789e-08,
+        "observed_max_error": 5.960464477539063e-08,
+        "hole_rmse": 0.4245108005819239,
+        "out_of_range_fraction": 0.013152567545572915,
+        "seconds_median": 6.252967793501739
+      }
+    },
+    {
+      "name": "no_correction",
+      "settings": {
+        "num_steps": 100,
+        "correction_weight": 0.0,
+        "num_correction_iters": 1,
+        "correction_lr": 0.1,
+        "num_final_projection_iters": 0,
+        "eps_reg": 1e-10,
+        "num_projection_iters": 1
+      },
+      "metrics": {
+        "method": "pcfm",
+        "planned": 5,
+        "successful": 5,
+        "paired_n": 5,
+        "fid_full": 205.62417588392708,
+        "paired_kid_full": 0.07705190066704844,
+        "fid_hole": 463.16917933182606,
+        "paired_kid_hole": 0.2577169930415436,
+        "observed_mae": 1.1088289173847331e-08,
+        "observed_max_error": 5.960464477539063e-08,
+        "hole_rmse": 0.4547333813682778,
+        "out_of_range_fraction": 0.034464263916015626,
+        "seconds_median": 1.246144827993703
+      }
+    },
+    {
+      "name": "small_correction",
+      "settings": {
+        "num_steps": 100,
+        "correction_weight": 0.001,
+        "num_correction_iters": 1,
+        "correction_lr": 0.1,
+        "num_final_projection_iters": 0,
+        "eps_reg": 1e-10,
+        "num_projection_iters": 1
+      },
+      "metrics": {
+        "method": "pcfm",
+        "planned": 5,
+        "successful": 5,
+        "paired_n": 5,
+        "fid_full": 198.93498865475564,
+        "paired_kid_full": 0.07164853921082989,
+        "fid_hole": 464.39419337725695,
+        "paired_kid_hole": 0.2666065646716344,
+        "observed_mae": 1.1167539786115274e-08,
+        "observed_max_error": 5.960464477539063e-08,
+        "hole_rmse": 0.4525827881807527,
+        "out_of_range_fraction": 0.03368911743164063,
+        "seconds_median": 3.887408204493113
+      }
+    },
+    {
+      "name": "standard_one_correction",
+      "settings": {
+        "num_steps": 100,
+        "correction_weight": 0.1,
+        "num_correction_iters": 1,
+        "correction_lr": 0.1,
+        "num_final_projection_iters": 0,
+        "eps_reg": 1e-10,
+        "num_projection_iters": 1
+      },
+      "metrics": {
+        "method": "pcfm",
+        "planned": 5,
+        "successful": 5,
+        "paired_n": 5,
+        "fid_full": 185.88414547294383,
+        "paired_kid_full": 0.057777205095202365,
+        "fid_hole": 450.7129665091353,
+        "paired_kid_hole": 0.2981198777519085,
+        "observed_mae": 1.1065738114914644e-08,
+        "observed_max_error": 5.960464477539063e-08,
+        "hole_rmse": 0.45451250414743327,
+        "seconds_median": 3.870944647002034
+      }
+    },
+    {
+      "name": "strong_correction",
+      "settings": {
+        "num_steps": 100,
+        "correction_weight": 1.0,
+        "num_correction_iters": 1,
+        "correction_lr": 0.1,
+        "num_final_projection_iters": 0,
+        "eps_reg": 1e-10,
+        "num_projection_iters": 1
+      },
+      "metrics": {
+        "method": "pcfm",
+        "planned": 5,
+        "successful": 5,
+        "paired_n": 5,
+        "fid_full": 186.15643657167874,
+        "paired_kid_full": 0.03645000252821808,
+        "fid_hole": 479.50134002843424,
+        "paired_kid_hole": 0.2510057334708981,
+        "observed_mae": 8.95930869856701e-09,
+        "observed_max_error": 5.960464477539063e-08,
+        "hole_rmse": 0.5347706064914384,
+        "out_of_range_fraction": 0.030400339762369794,
+        "seconds_median": 3.8705245535020367
+      }
+    },
+    {
+      "name": "stronger_correction",
+      "settings": {
+        "num_steps": 100,
+        "correction_weight": 10.0,
+        "num_correction_iters": 1,
+        "correction_lr": 0.1,
+        "num_final_projection_iters": 0,
+        "eps_reg": 1e-10,
+        "num_projection_iters": 1
+      },
+      "metrics": {
+        "method": "pcfm",
+        "planned": 5,
+        "successful": 5,
+        "paired_n": 5,
+        "fid_full": 242.74917651246787,
+        "paired_kid_full": 0.1066062103973027,
+        "fid_hole": 434.0349184149288,
+        "paired_kid_hole": 0.2861508398276021,
+        "observed_mae": 1.107428405785785e-08,
+        "observed_max_error": 5.960464477539063e-08,
+        "hole_rmse": 0.479099463813354,
+        "out_of_range_fraction": 0.02824961344401042,
+        "seconds_median": 8.246786271003657
+      }
+    },
+    {
+      "name": "ten_corrections",
+      "settings": {
+        "num_steps": 100,
+        "correction_weight": 0.1,
+        "num_correction_iters": 10,
+        "correction_lr": 0.1,
+        "num_final_projection_iters": 0,
+        "eps_reg": 1e-10,
+        "num_projection_iters": 1
+      },
+      "metrics": {
+        "method": "pcfm",
+        "planned": 5,
+        "successful": 5,
+        "paired_n": 5,
+        "fid_full": 181.7065921851704,
+        "paired_kid_full": 0.030090555894615602,
+        "fid_hole": 452.8852002778712,
+        "paired_kid_hole": 0.30733287657418107,
+        "observed_mae": 1.106629373349609e-08,
+        "observed_max_error": 5.960464477539063e-08,
+        "hole_rmse": 0.47473880677273694,
+        "out_of_range_fraction": 0.035915883382161465,
+        "seconds_median": 29.331663952500094
+      }
+    },
+    {
+      "name": "ten_steps",
+      "settings": {
+        "num_steps": 10,
+        "correction_weight": 0.0,
+        "num_correction_iters": 1,
+        "correction_lr": 0.1,
+        "num_final_projection_iters": 0,
+        "eps_reg": 1e-10,
+        "num_projection_iters": 1
+      },
+      "metrics": {
+        "method": "pcfm",
+        "planned": 5,
+        "successful": 5,
+        "paired_n": 5,
+        "fid_full": 179.29234154988598,
+        "paired_kid_full": 0.005888557801493444,
+        "fid_hole": 350.1707726327806,
+        "paired_kid_hole": 0.0650205332542313,
+        "observed_mae": 1.0828885851052207e-08,
+        "observed_max_error": 5.960464477539063e-08,
+        "hole_rmse": 0.31126203752266984,
+        "out_of_range_fraction": 0.00931549072265625,
+        "seconds_median": 0.15109870250307722
+      }
+    },
+    {
+      "name": "two_steps",
+      "settings": {
+        "num_steps": 2,
+        "correction_weight": 0.0,
+        "num_correction_iters": 1,
+        "correction_lr": 0.1,
+        "num_final_projection_iters": 0,
+        "eps_reg": 1e-10,
+        "num_projection_iters": 1
+      },
+      "metrics": {
+        "method": "pcfm",
+        "planned": 5,
+        "successful": 5,
+        "paired_n": 5,
+        "fid_full": 163.71439927280394,
+        "paired_kid_full": 0.04214095241727065,
+        "fid_hole": 446.10256569290283,
+        "paired_kid_hole": 0.27795601431333006,
+        "observed_mae": 9.498039065819644e-09,
+        "observed_max_error": 1.7881393432617188e-07,
+        "hole_rmse": 0.23991321623757175,
+        "out_of_range_fraction": 7.62939453125e-07,
+        "seconds_median": 0.034713818502496
+      }
+    }
+  ],
+  "inputs": {
+    "checkpoint_sha256": "ff0325f0859a10a02685a1f9fe4aa02f246d28a3bc1dfcd86e12dfaa83e19720",
+    "source": {
+      "kind": "existing_gallery",
+      "path": "/home/vince/code/constrained_flow_matching/results/imagenet_native_gallery",
+      "plan_sha256": "ce31efa4e23358dc7d53bade97c444d346eb1183ec45ae556599b05f744df5b1"
+    },
+    "cases": [
+      {
+        "id": 1,
+        "reference_seed": 1477148235,
+        "sample_seed": 1686936807,
+        "hole": [
+          166,
+          203,
+          192,
+          192
+        ]
+      },
+      {
+        "id": 2,
+        "reference_seed": 314974814,
+        "sample_seed": 1948214503,
+        "hole": [
+          265,
+          54,
+          192,
+          192
+        ]
+      },
+      {
+        "id": 3,
+        "reference_seed": 314661697,
+        "sample_seed": 444138407,
+        "hole": [
+          257,
+          257,
+          192,
+          192
+        ]
+      },
+      {
+        "id": 4,
+        "reference_seed": 436831462,
+        "sample_seed": 354243396,
+        "hole": [
+          261,
+          251,
+          192,
+          192
+        ]
+      },
+      {
+        "id": 5,
+        "reference_seed": 884548925,
+        "sample_seed": 1100863390,
+        "hole": [
+          45,
+          194,
+          192,
+          192
+        ]
+      }
+    ]
+  },
+  "notes": [
+    "The grid was expanded after initial calibration failures.",
+    "No calibration cases or completed candidates were dropped.",
+    "Ten corrections needed JAX simplified constants to compile.",
+    "PCFM equations are unchanged; norm equivalence is tested.",
+    "Different sampler compute budgets are reported, not equated.",
+    "Calibration runtimes include overlapping GPU jobs."
+  ]
+}

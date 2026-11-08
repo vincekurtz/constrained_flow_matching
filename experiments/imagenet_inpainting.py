@@ -3,9 +3,10 @@
     python -m experiments.imagenet_inpainting --stage unconstrained
     python -m experiments.imagenet_inpainting --stage pigdm
     python -m experiments.imagenet_inpainting --stage ldf
+    python -m experiments.imagenet_inpainting --stage pcfm
     python -m experiments.imagenet_inpainting --stage figure
 
-Inspect each sampling stage before running the next. All three use the same
+Inspect each sampling stage before running the next. All methods use the same
 checkpoint, ordinary image state, normalizer, and initial Gaussian noise.
 """
 
@@ -26,8 +27,9 @@ from cfm.methods.ldf import generate_unconstrained
 from cfm.models.jit_image import JiTImageFlow
 from problems import imagenet
 
-STAGES = ("unconstrained", "pigdm", "ldf")
-LABELS = {"unconstrained": "Unconstrained", "pigdm": "PiGDM", "ldf": "LDF"}
+STAGES = ("unconstrained", "pigdm", "ldf", "pcfm")
+LABELS = {"unconstrained": "Unconstrained", "pigdm": "PiGDM",
+          "ldf": "LDF", "pcfm": "PCFM"}
 
 
 def _identity(checkpoint_path, reference, observed):
@@ -126,8 +128,8 @@ def comparison(output_dir, seeds, options, figure_path):
             images[stage, seed] = image
             records.append(record)
 
-    fig = plt.figure(figsize=(3.6 * (len(seeds) + 1), 10.8))
-    grid = fig.add_gridspec(3, len(seeds) + 1, wspace=.03, hspace=.12)
+    fig = plt.figure(figsize=(3.6 * (len(seeds) + 1), 3.6 * len(STAGES)))
+    grid = fig.add_gridspec(len(STAGES), len(seeds) + 1, wspace=.03, hspace=.12)
     context = grid[:, 0].subgridspec(2, 1, hspace=.05)
     for i, (im, title) in enumerate([
         (reference, "Reference"),
@@ -146,7 +148,7 @@ def comparison(output_dir, seeds, options, figure_path):
     path = Path(figure_path)
     path.parent.mkdir(parents=True, exist_ok=True)
     fig.text(.5, .07, "Same pretrained velocity model and image coordinates. "
-             "No pixel compositing or final projection.",
+             "PCFM uses per-step projection; no output compositing.",
              ha="center", fontsize=10)
     fig.savefig(path, dpi=180, bbox_inches="tight")
     plt.close(fig)

@@ -108,15 +108,15 @@ def test_sweep_only_offers_supported_image_methods():
         "problems": ["imagenet"],
         "methods": ["ldf", "pigdm", "pcfm", "cbf"], "steps": [100],
     })
-    assert [case.method for case in cases] == ["ldf", "pigdm"]
-    assert len({case.key for case in cases}) == 2
+    assert [case.method for case in cases] == ["ldf", "pigdm", "pcfm"]
+    assert len({case.key for case in cases}) == 3
 
 
 def test_pretrained_training_and_unsupported_methods_fail_early():
     with pytest.raises(SystemExit, match="prepare_imagenet"):
         cli.main(["train", "--problem", "imagenet"])
-    with pytest.raises(ValueError, match="supports: ldf, pigdm"):
-        cli._resolve(imagenet.PROBLEM, methods.PCFM, SimpleNamespace())
+    with pytest.raises(ValueError, match="supports: ldf, pigdm, pcfm"):
+        cli._resolve(imagenet.PROBLEM, methods.CBF, SimpleNamespace())
 
 
 def test_cli_exports_raw_samples_and_figure(tmp_path, monkeypatch):
@@ -177,3 +177,28 @@ def test_missing_weights_explain_preparation(monkeypatch):
     monkeypatch.setattr(cli.checkpoint, "load", missing)
     with pytest.raises(SystemExit, match="prepare_imagenet --download"):
         cli.main(["generate", "--problem", "imagenet", "--no-plot"])
+
+
+@pytest.mark.parametrize("std", [.5, 1., 2.])
+@pytest.mark.parametrize("eps_reg", [1e-10, .03])
+def test_pcfm_norm_preserves_projection_and_relaxed_correction(std, eps_reg):
+    class Model:
+        data_shape = (2, 2, 1)
+
+        def __call__(self, x, t):
+            return -.3 * x + .1 * jnp.sin(x.mean(
+                axis=(1, 2, 3), keepdims=True,
+            ))
+
+    reference = np.array([.2, 0., .6, 0.]).reshape(2, 2, 1)
+    mask = np.array([[True, False], [True, False]])
+    kwargs = dict(num_samples=2, num_steps=5, num_projection_iters=2,
+                  num_final_projection_iters=0, num_correction_iters=2,
+                  eps_reg=eps_reg)
+    outputs = [methods.PCFM.run(
+        Model(), Normalizer(.5, std),
+        imagenet.fixed_pixel_constraint(reference, mask, reduction=reduction),
+        **kwargs,
+    ) for reduction in ("pixels", "norm")]
+    np.testing.assert_allclose(outputs[0].x, outputs[1].x, atol=2e-6)
+    np.testing.assert_allclose(outputs[0].xs, outputs[1].xs, atol=2e-6)

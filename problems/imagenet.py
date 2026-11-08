@@ -71,12 +71,13 @@ def make_constraint(reduction="pixels", **options):
 
 
 def fixed_pixel_constraint(reference, observed, *, reduction="pixels"):
-    """Linear fixed-pixel equalities, optionally reduced exactly for PiGDM.
+    """Linear fixed-pixel equalities, optionally reduced exactly for PiGDM/PCFM.
 
     LDF uses r=x[observed]-reference[observed], one multiplier per RGB value.
     PiGDM uses ||r||=0: the same feasible set and, under a scalar normalizer,
     the same correction as the full vector r, with only one Jacobian row.
-    This reduction is specific to PiGDM; it is not equivalent LDF dynamics.
+    PCFM also preserves its Gauss-Newton step and squared penalty.
+    The reduction is not equivalent LDF dynamics.
     """
     observed = np.broadcast_to(np.asarray(observed)[..., None], reference.shape)
     indices = jnp.asarray(np.flatnonzero(observed))
@@ -152,8 +153,16 @@ PROBLEM = Problem(
     save_figure=plot,
     retain_trajectory=False,
     unconstrained_gains={"dt": 0.002},
-    method_constraint_options={"pigdm": {"reduction": "norm"}},
+    method_constraint_options={
+        name: {"reduction": "norm"} for name in ("pigdm", "pcfm")
+    },
     method_gains={
+        "pcfm": {
+            "num_steps": 10, "num_projection_iters": 1,
+            "correction_weight": 0.,
+            "num_correction_iters": 1,
+            "num_final_projection_iters": 0,
+        },
         "ldf": {
             "penalty_weight": 40., "dt": 0.0005,
             "rescale_factor": 1., "rescale_exponent": 1.,
@@ -165,7 +174,7 @@ PROBLEM = Problem(
             "save_trajectory": False,
         },
     },
-    supported_methods=("ldf", "pigdm"),
+    supported_methods=("ldf", "pigdm", "pcfm"),
     options={
         "--reference": {"type": str, "default": None,
                         "help": "RGB reference image (center crop to 512px)."},

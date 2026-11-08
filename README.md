@@ -141,6 +141,8 @@ uv run -m cfm.cli generate --problem imagenet --method pigdm --seed 2 \
     --no-plot --output-dir results/image_pigdm
 uv run -m cfm.cli generate --problem imagenet --method ldf --seed 2 \
     --no-plot --output-dir results/image_ldf
+uv run -m cfm.cli generate --problem imagenet --method pcfm --seed 2 \
+    --no-plot --output-dir results/image_pcfm
 ```
 
 Preparation verifies the upstream checkpoint and writes
@@ -156,9 +158,11 @@ clipping for display.
 
 The LDF defaults are penalty 40, dual factor 1, exponent 1,
 `initial_dual_scale=-1`, and Midpoint `dt=0.0005`. This initialization
-cancels the initial penalty force. PiGDM uses an equivalent residual-norm
-calculation to reduce memory usage. Neither method changes the pretrained
-model's time coordinate or uses an extra image/noise state.
+cancels the initial penalty force. PiGDM and PCFM use an equivalent
+residual-norm calculation to reduce memory usage; LDF retains one equality
+and dual per observed RGB value. PCFM uses 10 steps, one projection per
+step, and disables its optional relaxed correction and final projection.
+All three use the native model time and image coordinates.
 
 See the [native-model comparison](plots/figures/imagenet_native_comparison.png)
 and [five-case gallery](plots/figures/imagenet_native_inpainting_five.png).
@@ -185,6 +189,48 @@ Figures have adjacent JSON files with settings, input hashes, and pixel
 errors. Further tuning plans are in [experiments/imagenet_native](experiments/imagenet_native),
 for use with `uv run -m experiments.imagenet_native_tuning --help`.
 See `NOTICE` and `licenses/JiT-MIT.txt` for model attribution.
+
+The [three-method calibration gallery](plots/imagenet_three_method_gallery/representatives.png)
+adds PCFM to the existing five cases. PCFM settings were selected from
+[twelve candidates](plots/imagenet_pcfm_calibration.csv) by missing-region
+FID on those cases; visible artifacts remain. Reproduce that search with
+`uv run --group evaluation -m experiments.imagenet_pcfm_calibration --stage run`.
+
+The larger study uses new paired reference images, masks, and sampler
+seeds. It saves whole-image and missing-region
+[Clean-FID](https://github.com/GaParmar/clean-fid), paired KID,
+observed-pixel errors, missing-region RMSE, runtime, and a figure of the
+first five cases. Tables are exported as CSV, Markdown, and JSON.
+
+```bash
+uv sync --group evaluation
+export XLA_PYTHON_CLIENT_PREALLOCATE=false
+export JAX_USE_SIMPLIFIED_JAXPR_CONSTANTS=false
+uv run --group evaluation -m experiments.imagenet_inpainting_study \
+    --stage init --count 256 --output-dir results/imagenet_study_256_selected
+uv run --group evaluation -m experiments.imagenet_inpainting_study \
+    --stage all --output-dir results/imagenet_study_256_selected \
+    --batch-size 4 --report-dir plots/imagenet_study_256
+```
+
+The default references are new samples from the lakeside model, making this
+a **synthetic-reference pilot**, not a real-image benchmark. For real images,
+add `--reference-dir /path/to/images` at initialization and use a checkpoint
+conditioned on the appropriate class. FID is sensitive to sample count;
+256 cases are exploratory ([FID bias study](https://openaccess.thecvf.com/content_CVPR_2020/papers/Chong_Effectively_Unbiased_FID_and_Inception_Score_and_Where_to_Find_CVPR_2020_paper.pdf)).
+Missing-region FID helps expose artifacts that
+the large observed area can hide in full-image FID. Paired KID excludes
+matched reference/output pairs from its cross-kernel average.
+
+Plans and raw outputs are immutable on resume; rerunning `--stage all`
+skips validated samples. `run_status.json` tracks the current stage.
+Batching applies to the fixed-step samplers; adaptive PiGDM runs singly.
+Numerical failures are recorded and counted;
+distribution metrics use the same successful cases for all methods.
+An unfinished study cannot produce a completed table. Individual stages
+are `references`, `pcfm`, `pigdm`, `ldf`, and `evaluate`. The methods use
+fixed settings with different computational costs; this is not a matched
+compute or exhaustive hyperparameter comparison.
 
 ## Benchmarks
 
