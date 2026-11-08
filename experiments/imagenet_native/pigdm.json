@@ -1,0 +1,5 @@
+[
+ {"name":"pigdm_g06", "method":"pigdm", "guidance_scale":0.6},
+ {"name":"pigdm_g015", "method":"pigdm", "guidance_scale":0.15},
+ {"name":"pigdm_g1", "method":"pigdm", "guidance_scale":1.0}
+]

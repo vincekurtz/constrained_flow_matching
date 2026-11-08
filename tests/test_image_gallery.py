@@ -35,9 +35,39 @@ def test_existing_plan_cannot_be_silently_replaced(tmp_path):
     assert gallery.initialize(root, source, 5) == plan
     with pytest.raises(ValueError, match="Existing plan differs"):
         gallery.initialize(root, source, 6)
+    with pytest.raises(ValueError, match="Existing plan differs"):
+        gallery.initialize(root, source, 5, {"initial_dual_scale": 0.})
     source.write_bytes(b"different checkpoint")
     with pytest.raises(ValueError, match="Existing plan differs"):
         gallery.initialize(root, source, 5)
+
+
+def test_gallery_initialization_overrides_do_not_change_problem_defaults():
+    baseline = gallery.settings()
+    selected = gallery.settings({
+        "initial_dual_scale": 0., "penalty_weight": 20.,
+    })
+    assert selected["ldf"]["initial_dual_scale"] == 0.
+    assert selected["ldf"]["penalty_weight"] == 20.
+    assert gallery.settings() == baseline
+    with pytest.raises(ValueError, match="Unsupported LDF"):
+        gallery.settings({"data_scale": .5})
+
+
+def test_gallery_solver_settings_are_recorded_and_validated(tmp_path):
+    source = tmp_path / "model.pkl"
+    source.write_bytes(b"checkpoint identity")
+    cfg = dict(solver="tsit5", rtol=.001, atol=.0001, max_steps=2000)
+    plan = gallery.initialize(tmp_path / "results", source, 5,
+                              pigdm_overrides=cfg)
+    for key, value in cfg.items():
+        assert plan["settings"]["pigdm"][key] == value
+    with pytest.raises(ValueError, match="Existing plan differs"):
+        gallery.initialize(tmp_path / "results", source, 5)
+    with pytest.raises(ValueError, match="both rtol and atol"):
+        gallery.settings(pigdm_overrides={"rtol": .001})
+    with pytest.raises(ValueError, match="Unknown PiGDM solver"):
+        gallery.settings(pigdm_overrides={"solver": "typo"})
 
 
 def test_figure_cannot_silently_drop_cases(tmp_path):
@@ -59,9 +89,7 @@ def test_dynamic_indices_match_existing_sampler_constraints(stage):
                 axis=(1, 2, 3), keepdims=True,
             ))
 
-    model, normalizer = imagenet.PROBLEM.model_for(
-        stage, Model(), Normalizer(.5, 2.),
-    )
+    model, normalizer = Model(), Normalizer(.5, 1.)
     method = methods.get(stage)
     reduction = "norm" if stage == "pigdm" else "pixels"
     traces = []
@@ -100,7 +128,7 @@ def test_record_validation_detects_replaced_reference_or_sample():
     image = reference.copy()
     record = {
         "checkpoint_sha256": "checkpoint", "case": case, "method": "ldf",
-        "settings": plan["settings"]["ldf"], "coordinates": "ldf",
+        "settings": plan["settings"]["ldf"], "coordinates": "native",
         "reference_sha256": gallery.digest(reference),
         "mask_sha256": gallery.digest(observed),
         "sample_sha256": gallery.digest(image),

@@ -1,0 +1,23 @@
+[
+  {
+    "name": "prior_seed2",
+    "method": "unconstrained",
+    "seed": 2
+  },
+  {
+    "name": "prior_seed123",
+    "method": "unconstrained",
+    "seed": 123
+  },
+  {
+    "name": "prior_seed1477148235",
+    "method": "unconstrained",
+    "seed": 1477148235
+  },
+  {
+    "name": "prior_seed2_halfstep",
+    "method": "unconstrained",
+    "seed": 2,
+    "dt": 0.001
+  }
+]

@@ -149,29 +149,10 @@ def test_loader_selects_ema1_and_rgb_normalization(tmp_path, monkeypatch):
 
     monkeypatch.setattr(jit_image, "JiT", backbone)
     model, norm = jit_image.load_pretrained(source, label=207)
+    assert isinstance(model, JiTImageFlow)
     assert selected["weight"] == 2
-    assert model.model.label == 207 and model.model.noise_scale == 2
-    assert model.model.t_eps == .005 and model.model.cfg == 1.
+    assert model.label == 207 and model.noise_scale == 2
+    assert model.t_eps == .05 and model.cfg == 1.
     np.testing.assert_allclose(
-        norm.unnormalize(jnp.array([-0.25, 0.0, 0.25])), [0.0, 0.5, 1.0]
+        norm.unnormalize(jnp.array([-0.5, 0.0, 0.5])), [0.0, 0.5, 1.0]
     )
-
-
-def test_data_coordinates_preserve_physical_endpoint_and_clean_estimate():
-    from cfm.models.jit_image import DataScaleFlow
-
-    class ExpandingFlow:
-        data_shape = (2,)
-
-        def __call__(self, x, t):
-            return x / (1 + t[:, None])
-
-    a = .25
-    model = DataScaleFlow(ExpandingFlow(), data_scale=a)
-    initial = jnp.array([[.3, -.7], [.8, .1]])
-    t = jnp.array([.2, .8])
-    y = (1 + (2 * a - 1) * t[:, None]) * initial
-    v = model(y, t)
-    np.testing.assert_allclose(v, (2 * a - 1) * initial, atol=1e-7)
-    clean = y + (1 - t[:, None]) * v
-    np.testing.assert_allclose(clean * (.5 / a), initial, atol=1e-7)

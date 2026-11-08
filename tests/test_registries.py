@@ -37,7 +37,9 @@ def test_locked_values_appear_in_defaults():
 
 def test_penalty_is_ldf_with_frozen_multipliers():
     assert methods.PENALTY.generate is methods.LDF.generate
-    assert methods.PENALTY.locked == {"rescale_factor": 0.0}
+    assert methods.PENALTY.locked == {
+        "rescale_factor": 0.0, "initial_dual_scale": None,
+    }
     assert methods.PENALTY.defaults["rescale_factor"] == 0.0
     shared = set(methods.LDF.defaults) - {"rescale_factor"}
     for key in shared:
@@ -56,6 +58,8 @@ def test_config_applies_overrides_then_locked():
 def test_locked_parameter_cannot_be_overridden():
     with pytest.raises(ValueError, match="cannot be overridden"):
         methods.PENALTY.config(rescale_factor=1.0)
+    with pytest.raises(ValueError, match="initial_dual_scale"):
+        methods.PENALTY.config(initial_dual_scale=-1.0)
 
 
 def test_locked_parameter_accepts_a_matching_value():

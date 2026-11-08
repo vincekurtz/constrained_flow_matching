@@ -1,0 +1,146 @@
+{
+  "plan": {
+    "checkpoint_sha256": "ff0325f0859a10a02685a1f9fe4aa02f246d28a3bc1dfcd86e12dfaa83e19720",
+    "reference_sha256": "6a6c1838dfaa0bc7d8203b6c576ae03fda73aa83a64338165bbedb1c2fb24ef2",
+    "mask_sha256": "98e57eb9e93e955c6bf24b9fdf897aa4cd601df14118d331e7a39bbe1d3aadb7",
+    "coordinates": "native",
+    "normalizer": {
+      "mean": 0.5,
+      "std": 1.0
+    },
+    "projection_iters": 0,
+    "jobs": [
+      {
+        "name": "pigdm_g06",
+        "method": "pigdm",
+        "seed": 2,
+        "dt": 0.002,
+        "solver": "midpoint",
+        "cfg": 1.0,
+        "t_eps": 0.05,
+        "guidance_scale": 0.6,
+        "eps_reg": 1e-08
+      },
+      {
+        "name": "pigdm_g015",
+        "method": "pigdm",
+        "seed": 2,
+        "dt": 0.002,
+        "solver": "midpoint",
+        "cfg": 1.0,
+        "t_eps": 0.05,
+        "guidance_scale": 0.15,
+        "eps_reg": 1e-08
+      },
+      {
+        "name": "pigdm_g1",
+        "method": "pigdm",
+        "seed": 2,
+        "dt": 0.002,
+        "solver": "midpoint",
+        "cfg": 1.0,
+        "t_eps": 0.05,
+        "guidance_scale": 1.0,
+        "eps_reg": 1e-08
+      }
+    ]
+  },
+  "records": [
+    {
+      "checkpoint_sha256": "ff0325f0859a10a02685a1f9fe4aa02f246d28a3bc1dfcd86e12dfaa83e19720",
+      "reference_sha256": "6a6c1838dfaa0bc7d8203b6c576ae03fda73aa83a64338165bbedb1c2fb24ef2",
+      "mask_sha256": "98e57eb9e93e955c6bf24b9fdf897aa4cd601df14118d331e7a39bbe1d3aadb7",
+      "coordinates": "native",
+      "normalizer": {
+        "mean": 0.5,
+        "std": 1.0
+      },
+      "projection_iters": 0,
+      "class_index": 975,
+      "noise_scale": 2.0,
+      "settings": {
+        "name": "pigdm_g06",
+        "method": "pigdm",
+        "seed": 2,
+        "dt": 0.002,
+        "solver": "midpoint",
+        "cfg": 1.0,
+        "t_eps": 0.05,
+        "guidance_scale": 0.6,
+        "eps_reg": 1e-08
+      },
+      "finite": true,
+      "seconds": 71.55296887998702,
+      "steps": 500,
+      "sample_sha256": "7915b22c5708e31307293defe9aee9877f7d3275807fcd8b8f955081d657be4e",
+      "observed_mae": 0.0019041869090870023,
+      "observed_max_error": 0.01877543330192566,
+      "min": -0.1552417278289795,
+      "max": 1.220301628112793
+    },
+    {
+      "checkpoint_sha256": "ff0325f0859a10a02685a1f9fe4aa02f246d28a3bc1dfcd86e12dfaa83e19720",
+      "reference_sha256": "6a6c1838dfaa0bc7d8203b6c576ae03fda73aa83a64338165bbedb1c2fb24ef2",
+      "mask_sha256": "98e57eb9e93e955c6bf24b9fdf897aa4cd601df14118d331e7a39bbe1d3aadb7",
+      "coordinates": "native",
+      "normalizer": {
+        "mean": 0.5,
+        "std": 1.0
+      },
+      "projection_iters": 0,
+      "class_index": 975,
+      "noise_scale": 2.0,
+      "settings": {
+        "name": "pigdm_g015",
+        "method": "pigdm",
+        "seed": 2,
+        "dt": 0.002,
+        "solver": "midpoint",
+        "cfg": 1.0,
+        "t_eps": 0.05,
+        "guidance_scale": 0.15,
+        "eps_reg": 1e-08
+      },
+      "finite": true,
+      "seconds": 26.625094920003903,
+      "steps": 500,
+      "sample_sha256": "eb372fc2b8a1f9ae805840a54d08ca73568a0d4b9c3cc669a02588462b0a9e75",
+      "observed_mae": 0.01978881284594536,
+      "observed_max_error": 0.30428415536880493,
+      "min": -0.013535618782043457,
+      "max": 1.0175232887268066
+    },
+    {
+      "checkpoint_sha256": "ff0325f0859a10a02685a1f9fe4aa02f246d28a3bc1dfcd86e12dfaa83e19720",
+      "reference_sha256": "6a6c1838dfaa0bc7d8203b6c576ae03fda73aa83a64338165bbedb1c2fb24ef2",
+      "mask_sha256": "98e57eb9e93e955c6bf24b9fdf897aa4cd601df14118d331e7a39bbe1d3aadb7",
+      "coordinates": "native",
+      "normalizer": {
+        "mean": 0.5,
+        "std": 1.0
+      },
+      "projection_iters": 0,
+      "class_index": 975,
+      "noise_scale": 2.0,
+      "settings": {
+        "name": "pigdm_g1",
+        "method": "pigdm",
+        "seed": 2,
+        "dt": 0.002,
+        "solver": "midpoint",
+        "cfg": 1.0,
+        "t_eps": 0.05,
+        "guidance_scale": 1.0,
+        "eps_reg": 1e-08
+      },
+      "finite": true,
+      "seconds": 26.74512452899944,
+      "steps": 500,
+      "sample_sha256": "ac571581d76f0bf9f190395bbc05078703204d21816818416f02b6f2ef59e426",
+      "observed_mae": 4.500912837102078e-05,
+      "observed_max_error": 0.0008059144020080566,
+      "min": -0.09303301572799683,
+      "max": 1.1114516258239746
+    }
+  ]
+}

@@ -11,14 +11,11 @@ from PIL import Image, ImageOps
 
 from cfm.core import checkpoint
 from cfm.core.constraints import equality
-from cfm.models.image_coordinates import (
-    ImageCoordinateFlow, ImageCoordinateNormalizer,
-)
 from problems import Problem
 
 IMAGE_SHAPE = (512, 512, 3)
 REFERENCE_PATH = Path(__file__).parent / "assets/imagenet_reference.png"
-CHECKPOINT_PATH = "data/imagenet_model.pkl"
+CHECKPOINT_PATH = "data/imagenet_native_model.pkl"
 
 
 @jax.custom_jvp
@@ -113,13 +110,6 @@ def make_model():
     return checkpoint.load(CHECKPOINT_PATH)[0]
 
 
-def adapt_model(model, normalizer, method_name):
-    """LDF constrains image coordinates; PiGDM keeps its native estimate."""
-    if method_name == "ldf":
-        return ImageCoordinateFlow(model), ImageCoordinateNormalizer(normalizer)
-    return model, normalizer
-
-
 def plot(problem, samples, constraint=None, *, output_path=None, show=True,
          **options):
     """Raw model output next to the reference and the observed pixels."""
@@ -160,18 +150,19 @@ PROBLEM = Problem(
     make_constraint=make_constraint,
     plot=plot,
     save_figure=plot,
-    adapt_model=adapt_model,
     retain_trajectory=False,
-    unconstrained_gains={"dt": 0.001},
+    unconstrained_gains={"dt": 0.002},
     method_constraint_options={"pigdm": {"reduction": "norm"}},
     method_gains={
         "ldf": {
-            "penalty_weight": 17., "dt": 0.00125,
-            "rescale_factor": 1. / 289., "rescale_exponent": 2.,
+            "penalty_weight": 40., "dt": 0.0005,
+            "rescale_factor": 1., "rescale_exponent": 1.,
+            "initial_dual_scale": -1., "save_trajectory": False,
             "num_projection_iters": 0,
         },
         "pigdm": {
             "dt": 0.0005, "guidance_scale": 0.6, "eps_reg": 1e-8,
+            "save_trajectory": False,
         },
     },
     supported_methods=("ldf", "pigdm"),

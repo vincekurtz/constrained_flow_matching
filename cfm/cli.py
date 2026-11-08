@@ -39,6 +39,11 @@ GENERATION_FLAGS = {
                 "ablation, which --method penalty fixes.",
     },
     "--rescale-exponent": {"type": float, "help": "Equality flow exponent p."},
+    "--initial-dual-scale": {
+        "type": float,
+        "help": "LDF equality initialization: lambda(0)=scale*G(x(0)). "
+                "Use -1 to cancel the initial penalty force.",
+    },
     "--slack": {
         "choices": ["closed_form", "ode"],
         "help": "Slack handling for inequality constraints.",
@@ -159,7 +164,6 @@ def cmd_generate(args):
         if args.dt is not None:
             cfg["dt"] = args.dt
     model, normalizer = _load_checkpoint(problem, path)
-    model, normalizer = problem.model_for(args.method, model, normalizer)
     num_samples = args.num_samples or problem.default_num_samples
     rng = jax.random.key(args.seed)
 
@@ -251,7 +255,6 @@ def cmd_benchmark(args):
     model, normalizer = _load_checkpoint(
         problem, Path(args.save_path or problem.checkpoint_path)
     )
-    model, normalizer = problem.model_for(method.name, model, normalizer)
     constraint = problem.constraint_for(
         method.name,
         **_problem_option_values(args, problem)

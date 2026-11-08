@@ -85,8 +85,8 @@ PENALTY = Method(
     label="Penalty only",
     generate=ldf.generate,
     supports=BOTH,
-    defaults=dict(_LDF_DEFAULTS, rescale_factor=0.0),
-    locked={"rescale_factor": 0.0},
+    defaults=dict(_LDF_DEFAULTS, rescale_factor=0.0, initial_dual_scale=None),
+    locked={"rescale_factor": 0.0, "initial_dual_scale": None},
 )
 
 PCFM = Method(

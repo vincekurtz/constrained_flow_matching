@@ -28,6 +28,7 @@ from cfm.core.solve import (
     batched_velocity,
     initial_noise,
     resolve_rng,
+    save_times,
     solve_flow,
     wrap_constraint,
 )
@@ -49,6 +50,7 @@ def generate_unconstrained(
     rng: Optional[jax.Array] = None,
     solver: diffrax.AbstractSolver = None,
     stepsize_controller: diffrax.AbstractStepSizeController = None,
+    save_trajectory: bool = True,
 ) -> Samples:
     """Generate samples from a trained flow model with no constraint."""
     rng = resolve_rng(rng, seed)
@@ -60,6 +62,7 @@ def generate_unconstrained(
 
     xs, num_steps = solve_flow(
         _ode_fn, x_init, dt=dt, save_t1=False,
+        save_ts=None if save_trajectory else save_times(dt, 1.)[-1:],
         solver=solver, stepsize_controller=stepsize_controller,
     )
     return Samples(
@@ -165,6 +168,8 @@ def generate(
     solver: diffrax.AbstractSolver = None,
     stepsize_controller: diffrax.AbstractStepSizeController = None,
     max_steps: Optional[int] = None,
+    initial_dual_scale: Optional[float] = None,
+    save_trajectory: bool = True,
 ) -> Samples:
     """Generate samples subject to ``constraint`` via the dual flow.
 
@@ -177,6 +182,12 @@ def generate(
             samples.
         max_steps: solver step cap. Defaults to 10k (equality) or 100k
             (inequality).
+        initial_dual_scale: Equality-only multiplier initialization
+            ``lambda(0) = initial_dual_scale * G(x(0))``, where G is the
+            weighted residual. None preserves zero initialization; -1
+            cancels the initial penalty force without changing x(0).
+        save_trajectory: False retains only the initial and last saved
+            image states, at the same times as the full trajectory.
     """
     if slack not in SLACK_MODES:
         raise ValueError(f"slack must be one of {SLACK_MODES}, got {slack!r}")
@@ -184,6 +195,10 @@ def generate(
     rng = resolve_rng(rng, seed)
     data_shape = model.data_shape
     is_equality = constraint.kind == EQUALITY
+    if not is_equality and initial_dual_scale is not None:
+        raise ValueError(
+            "initial_dual_scale supports equality constraints only"
+        )
 
     _c = wrap_constraint(
         constraint.fn, normalizer, data_shape, penalty_weight
@@ -191,7 +206,8 @@ def generate(
 
     x_init = initial_noise(rng, num_samples, data_shape)
     c_init = jax.vmap(lambda xi: _c(xi.ravel()))(x_init)
-    lmbda_init = jnp.zeros_like(c_init)
+    lmbda_init = (jnp.zeros_like(c_init) if initial_dual_scale is None
+                 else initial_dual_scale * c_init)
 
     if is_equality:
         ode_fn = _equality_flow(model, _c, rescale_factor, rescale_exponent)
@@ -212,6 +228,7 @@ def generate(
 
     ys, num_steps = solve_flow(
         ode_fn, y_init, dt=dt, save_t1=False,
+        save_ts=None if save_trajectory else save_times(dt, 1.)[-1:],
         solver=solver, stepsize_controller=stepsize_controller,
         max_steps=default_max_steps if max_steps is None else max_steps,
     )

@@ -63,13 +63,16 @@ def test_fixed_pixel_equality_and_zero_subgradient():
     assert float(c.fn(jnp.array(changed))[0]) > .7
 
 
-@pytest.mark.parametrize("std", [.5, 2., 4.])
-def test_norm_and_pixelwise_equalities_give_identical_pigdm(std):
+@pytest.mark.parametrize("std", [.5, 1., 2.])
+@pytest.mark.parametrize("eps_reg", [1e-8, .03])
+def test_norm_and_pixelwise_equalities_give_identical_pigdm(std, eps_reg):
     class Model:
         data_shape = (2, 2, 1)
 
         def __call__(self, x, t):
-            return -.3 * x + .1 * jnp.mean(x, axis=(1, 2, 3), keepdims=True)
+            return -.3 * x + .1 * jnp.sin(jnp.mean(
+                x, axis=(1, 2, 3), keepdims=True,
+            ))
 
     ref = np.array([.2, 0., .6, 0.]).reshape(2, 2, 1)
     c = imagenet.fixed_pixel_constraint(
@@ -79,7 +82,8 @@ def test_norm_and_pixelwise_equalities_give_identical_pigdm(std):
         lambda x: x.ravel()[jnp.array([0, 2])] - jnp.array([.2, .6])
     )
     norm = Normalizer(jnp.array(.5), jnp.array(std))
-    cfg = dict(num_samples=2, dt=.01, seed=0)
+    cfg = dict(num_samples=2, dt=.01, seed=0, eps_reg=eps_reg,
+               guidance_scale=.6)
     a = methods.PIGDM.run(Model(), norm, c, **cfg)
     b = methods.PIGDM.run(Model(), norm, vector, **cfg)
     np.testing.assert_allclose(a.x, b.x, atol=1e-6)

@@ -1,0 +1,11 @@
+[
+  {
+    "name": "baseline_tsit5",
+    "method": "ldf",
+    "penalty_weight": 10.0,
+    "dt": 0.002,
+    "solver": "tsit5",
+    "rtol": 0.001,
+    "atol": 0.0001
+  }
+]

@@ -192,13 +192,13 @@ class JiTImageFlow:
     Native JiT uses z = t*RGB + (1-t)*noise_scale*epsilon, RGB in [-1,1].
     Our state is x=z/noise_scale, so v=(clean-z)/(noise_scale*max(1-t,t_eps)).
     Pair with Normalizer(.5, noise_scale/2) to recover physical RGB in [0,1].
-    Keep a positive velocity floor (.005 here; .05 upstream): it bounds the
+    Keep the upstream positive velocity floor (.05): it bounds the
     endpoint drift and makes the clean estimate approach the state at t=1.
     Their classifier-free guidance remains active only for .1 < t < 1.
     No reference image or inpainting mask enters this adapter.
     """
 
-    def __init__(self, net, *, label=207, cfg=1.0, noise_scale=1.0, t_eps=.005):
+    def __init__(self, net, *, label=207, cfg=1.0, noise_scale=1.0, t_eps=.05):
         if not 0 <= label < 1000:
             raise ValueError("ImageNet label must be between 0 and 999")
         if noise_scale <= 0 or t_eps <= 0 or cfg < 0:
@@ -235,31 +235,7 @@ class JiTImageFlow:
         return (clean - z) / (denominator * self.noise_scale)
 
 
-class DataScaleFlow:
-    """Exact rescaling of a linear noise-to-data flow, independent of masks.
-
-    With s=1-t+a*t and tau=a*t/s, y(t)=s*x(tau) starts from the same
-    Gaussian and ends at a*x(1). The physical normalizer divides std by a.
-    Crucially, y+(1-t)*dy/dt = a*(x+(1-tau)*dx/dtau), so PiGDM's clean
-    estimate remains valid. No reference pixels enter this transformation.
-    """
-
-    def __init__(self, model, data_scale=0.25):
-        if not math.isfinite(data_scale) or data_scale <= 0:
-            raise ValueError("data_scale must be positive and finite")
-        self.model, self.data_shape = model, model.data_shape
-        self.data_scale = data_scale
-
-    def __call__(self, y, t):
-        a = self.data_scale
-        s = 1 - t + a * t
-        tau = a * t / s
-        shape = (-1,) + (1,) * len(self.data_shape)
-        x = y / s.reshape(shape)
-        return (a - 1) * x + a * self.model(x, tau) / s.reshape(shape)
-
-
-def load_pretrained(path, *, label=975, data_scale=0.5):
+def load_pretrained(path, *, label=975, cfg=1.0):
     """Load the authors' JiT-H/32 512px EMA1 checkpoint, without training."""
     import torch
 
@@ -267,8 +243,5 @@ def load_pretrained(path, *, label=975, data_scale=0.5):
     if "model_ema1" not in state:
         raise ValueError("Expected the authors' EMA1 checkpoint")
     weights = {k: v.detach().numpy() for k, v in state["model_ema1"].items()}
-    model = DataScaleFlow(
-        JiTImageFlow(JiT(weights), label=label, cfg=1., noise_scale=2.),
-        data_scale,
-    )
-    return model, Normalizer(jnp.array(0.5), jnp.array(1. / data_scale))
+    model = JiTImageFlow(JiT(weights), label=label, cfg=cfg, noise_scale=2.)
+    return model, Normalizer(jnp.array(0.5), jnp.array(1.0))

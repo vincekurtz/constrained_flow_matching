@@ -1,0 +1,146 @@
+{
+  "plan": {
+    "checkpoint_sha256": "ff0325f0859a10a02685a1f9fe4aa02f246d28a3bc1dfcd86e12dfaa83e19720",
+    "reference_sha256": "6a6c1838dfaa0bc7d8203b6c576ae03fda73aa83a64338165bbedb1c2fb24ef2",
+    "mask_sha256": "98e57eb9e93e955c6bf24b9fdf897aa4cd601df14118d331e7a39bbe1d3aadb7",
+    "coordinates": "native",
+    "normalizer": {
+      "mean": 0.5,
+      "std": 1.0
+    },
+    "projection_iters": 0,
+    "jobs": [
+      {
+        "name": "pigdm_g03_smallstep",
+        "method": "pigdm",
+        "seed": 2,
+        "dt": 0.0005,
+        "solver": "midpoint",
+        "cfg": 1.0,
+        "t_eps": 0.05,
+        "guidance_scale": 0.3,
+        "eps_reg": 1e-08
+      },
+      {
+        "name": "pigdm_g045_smallstep",
+        "method": "pigdm",
+        "seed": 2,
+        "dt": 0.0005,
+        "solver": "midpoint",
+        "cfg": 1.0,
+        "t_eps": 0.05,
+        "guidance_scale": 0.45,
+        "eps_reg": 1e-08
+      },
+      {
+        "name": "pigdm_g06_smallstep",
+        "method": "pigdm",
+        "seed": 2,
+        "dt": 0.0005,
+        "solver": "midpoint",
+        "cfg": 1.0,
+        "t_eps": 0.05,
+        "guidance_scale": 0.6,
+        "eps_reg": 1e-08
+      }
+    ]
+  },
+  "records": [
+    {
+      "checkpoint_sha256": "ff0325f0859a10a02685a1f9fe4aa02f246d28a3bc1dfcd86e12dfaa83e19720",
+      "reference_sha256": "6a6c1838dfaa0bc7d8203b6c576ae03fda73aa83a64338165bbedb1c2fb24ef2",
+      "mask_sha256": "98e57eb9e93e955c6bf24b9fdf897aa4cd601df14118d331e7a39bbe1d3aadb7",
+      "coordinates": "native",
+      "normalizer": {
+        "mean": 0.5,
+        "std": 1.0
+      },
+      "projection_iters": 0,
+      "class_index": 975,
+      "noise_scale": 2.0,
+      "settings": {
+        "name": "pigdm_g03_smallstep",
+        "method": "pigdm",
+        "seed": 2,
+        "dt": 0.0005,
+        "solver": "midpoint",
+        "cfg": 1.0,
+        "t_eps": 0.05,
+        "guidance_scale": 0.3,
+        "eps_reg": 1e-08
+      },
+      "finite": true,
+      "seconds": 153.7889627100085,
+      "steps": 2000,
+      "sample_sha256": "a036e222c7911a95c1f7a6e7208c1699a174511c09aa971b64f4ab76ed59a29a",
+      "observed_mae": 0.006184562109410763,
+      "observed_max_error": 0.09400062263011932,
+      "min": -0.006203353404998779,
+      "max": 1.0053123235702515
+    },
+    {
+      "checkpoint_sha256": "ff0325f0859a10a02685a1f9fe4aa02f246d28a3bc1dfcd86e12dfaa83e19720",
+      "reference_sha256": "6a6c1838dfaa0bc7d8203b6c576ae03fda73aa83a64338165bbedb1c2fb24ef2",
+      "mask_sha256": "98e57eb9e93e955c6bf24b9fdf897aa4cd601df14118d331e7a39bbe1d3aadb7",
+      "coordinates": "native",
+      "normalizer": {
+        "mean": 0.5,
+        "std": 1.0
+      },
+      "projection_iters": 0,
+      "class_index": 975,
+      "noise_scale": 2.0,
+      "settings": {
+        "name": "pigdm_g045_smallstep",
+        "method": "pigdm",
+        "seed": 2,
+        "dt": 0.0005,
+        "solver": "midpoint",
+        "cfg": 1.0,
+        "t_eps": 0.05,
+        "guidance_scale": 0.45,
+        "eps_reg": 1e-08
+      },
+      "finite": true,
+      "seconds": 107.6229888730013,
+      "steps": 2000,
+      "sample_sha256": "6d69b886e0c4a428f3d47f4a7148bf1f566b21219c31099e4840f2707ee0cb27",
+      "observed_mae": 0.0024411589838564396,
+      "observed_max_error": 0.027134880423545837,
+      "min": -0.003907561302185059,
+      "max": 1.0777344703674316
+    },
+    {
+      "checkpoint_sha256": "ff0325f0859a10a02685a1f9fe4aa02f246d28a3bc1dfcd86e12dfaa83e19720",
+      "reference_sha256": "6a6c1838dfaa0bc7d8203b6c576ae03fda73aa83a64338165bbedb1c2fb24ef2",
+      "mask_sha256": "98e57eb9e93e955c6bf24b9fdf897aa4cd601df14118d331e7a39bbe1d3aadb7",
+      "coordinates": "native",
+      "normalizer": {
+        "mean": 0.5,
+        "std": 1.0
+      },
+      "projection_iters": 0,
+      "class_index": 975,
+      "noise_scale": 2.0,
+      "settings": {
+        "name": "pigdm_g06_smallstep",
+        "method": "pigdm",
+        "seed": 2,
+        "dt": 0.0005,
+        "solver": "midpoint",
+        "cfg": 1.0,
+        "t_eps": 0.05,
+        "guidance_scale": 0.6,
+        "eps_reg": 1e-08
+      },
+      "finite": true,
+      "seconds": 107.79598934699607,
+      "steps": 2000,
+      "sample_sha256": "9de4c5393aec2814cd06fb7eae9d98a5549201a1cdae11b5099a6ac4cec00a80",
+      "observed_mae": 0.0009473622776567936,
+      "observed_max_error": 0.00764794647693634,
+      "min": -0.006577849388122559,
+      "max": 1.0770902633666992
+    }
+  ]
+}

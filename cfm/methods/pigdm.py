@@ -32,6 +32,10 @@ def generate_pigdm(
     rng: jax.Array = None,
     guidance_scale: float = 1.0,
     eps_reg: float = 1e-4,
+    solver: diffrax.AbstractSolver = None,
+    stepsize_controller: diffrax.AbstractStepSizeController = None,
+    max_steps: int = 4096,
+    save_trajectory: bool = True,
 ) -> Tuple[jax.Array, jax.Array]:
     """Generate samples satisfying ``g(x) = 0`` with PiGDM guidance.
 
@@ -46,6 +50,10 @@ def generate_pigdm(
         constraint_fn: ``g(x)`` on a single unnormalized sample.
         guidance_scale: weight on the correction; 1 matches the paper.
         eps_reg: regularizer standing in for ``sigma_y^2``.
+        solver: ODE integrator; defaults to Midpoint as before.
+        stepsize_controller: Defaults to ConstantStepSize.
+        max_steps: Solver step cap; 4096 preserves the Diffrax default.
+        save_trajectory: False saves only the same final image at t=1.
     """
     rng = resolve_rng(rng, seed)
     data_shape = model.data_shape
@@ -85,13 +93,18 @@ def generate_pigdm(
 
     solution = diffrax.diffeqsolve(
         diffrax.ODETerm(_ode_fn),
-        diffrax.Midpoint(),
+        diffrax.Midpoint() if solver is None else solver,
         t0=0.0,
         t1=1.0,
         dt0=dt,
         y0=x_init,
-        saveat=diffrax.SaveAt(ts=save_times(dt, 1.0), t1=True),
-        stepsize_controller=diffrax.ConstantStepSize(),
+        saveat=diffrax.SaveAt(
+            ts=save_times(dt, 1.0) if save_trajectory else None, t1=True,
+        ),
+        stepsize_controller=(diffrax.ConstantStepSize()
+                             if stepsize_controller is None else
+                             stepsize_controller),
+        max_steps=max_steps,
     )
     print(solution.stats["num_steps"], "steps taken")
     xs = solution.ys

@@ -1,14 +1,12 @@
 """Reproduce the pretrained image example one validation stage at a time.
 
     python -m experiments.imagenet_inpainting --stage unconstrained
-    python -m experiments.imagenet_inpainting --stage unconstrained-ldf
     python -m experiments.imagenet_inpainting --stage pigdm
     python -m experiments.imagenet_inpainting --stage ldf
     python -m experiments.imagenet_inpainting --stage figure
 
 Inspect each sampling stage before running the next. All three use the same
-checkpoint. LDF uses an augmented image-coordinate wrapper; its native
-initial noise matches the other samplers when sampling one seed at a time.
+checkpoint, ordinary image state, normalizer, and initial Gaussian noise.
 """
 
 import argparse
@@ -25,7 +23,7 @@ from PIL import Image
 from cfm import methods
 from cfm.core import checkpoint
 from cfm.methods.ldf import generate_unconstrained
-from cfm.models.jit_image import DataScaleFlow
+from cfm.models.jit_image import JiTImageFlow
 from problems import imagenet
 
 STAGES = ("unconstrained", "pigdm", "ldf")
@@ -47,23 +45,14 @@ def generate(stage, checkpoint_path, output_dir, seeds, options):
     reference, observed = imagenet.reference_and_mask(**options)
     identity = _identity(checkpoint_path, reference, observed)
     model, normalizer = checkpoint.load(checkpoint_path)
-    if (not isinstance(model, DataScaleFlow)
+    if (not isinstance(model, JiTImageFlow)
             or model.data_shape != imagenet.IMAGE_SHAPE):
-        raise ValueError("Re-run experiments.prepare_imagenet for the time "
-                         "adapter validated with this example")
-    unconstrained = stage in ("unconstrained", "unconstrained-ldf")
-    coordinates = "ldf" if stage in ("ldf", "unconstrained-ldf") else "native"
-    adapter = {"coordinates": coordinates,
-               "data_scale": model.data_scale,
-               "class_index": model.model.label,
-               "cfg": model.model.cfg,
-               "noise_scale": model.model.noise_scale,
-               "t_eps": model.model.t_eps, "precision": "highest"}
-    model, normalizer = imagenet.PROBLEM.model_for(
-        "ldf" if coordinates == "ldf" else stage, model, normalizer,
-    )
-    if coordinates == "ldf":
-        adapter["initial_image_scale"] = model.initial_image_scale
+        raise ValueError("Re-run experiments.prepare_imagenet for the plain "
+                         "velocity model without coordinate/time rescaling")
+    unconstrained = stage == "unconstrained"
+    adapter = {"coordinates": "native", "class_index": model.label,
+               "cfg": model.cfg, "noise_scale": model.noise_scale,
+               "t_eps": model.t_eps, "precision": "highest"}
     constraint = (None if unconstrained else
                   imagenet.PROBLEM.constraint_for(stage, **options))
     cfg = ({"dt": .01, **imagenet.PROBLEM.unconstrained_gains}
@@ -126,7 +115,7 @@ def comparison(output_dir, seeds, options, figure_path):
                 raise ValueError(f"Mismatched experiment inputs: {stem}")
             if record["method"] != stage or record["seed"] != seed:
                 raise ValueError(f"Mismatched method/seed: {stem}")
-            coordinates = "ldf" if stage == "ldf" else "native"
+            coordinates = "native"
             if record.get("adapter", {}).get("coordinates") != coordinates:
                 raise ValueError(f"Mismatched model coordinates: {stem}")
             image = np.load(stem.with_suffix(".npy"))
@@ -156,7 +145,7 @@ def comparison(output_dir, seeds, options, figure_path):
             ax.axis("off")
     path = Path(figure_path)
     path.parent.mkdir(parents=True, exist_ok=True)
-    fig.text(.5, .07, "Same pretrained weights; LDF uses image coordinates. "
+    fig.text(.5, .07, "Same pretrained velocity model and image coordinates. "
              "No pixel compositing or final projection.",
              ha="center", fontsize=10)
     fig.savefig(path, dpi=180, bbox_inches="tight")
@@ -169,13 +158,13 @@ def main():
     jax.config.update("jax_compilation_cache_dir", ".jax_cache")
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "--stage", choices=(*STAGES, "unconstrained-ldf", "figure"),
+        "--stage", choices=(*STAGES, "figure"),
         required=True,
     )
     parser.add_argument("--checkpoint", default=imagenet.CHECKPOINT_PATH)
-    parser.add_argument("--output-dir", default="results/imagenet")
+    parser.add_argument("--output-dir", default="results/imagenet_native")
     parser.add_argument(
-        "--figure", default="plots/figures/imagenet_inpainting.png"
+        "--figure", default="plots/figures/imagenet_native_inpainting.png"
     )
     parser.add_argument("--seeds", type=int, nargs="+", default=[2])
     for flag, kwargs in imagenet.PROBLEM.options.items():

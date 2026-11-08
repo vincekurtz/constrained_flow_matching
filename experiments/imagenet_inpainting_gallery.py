@@ -1,4 +1,4 @@
-"""Five unselected random references and masks using the committed settings.
+"""Five unselected random references and masks using the plain velocity model.
 
 Run stages in order: references, pigdm, ldf, figure. Every planned case is
 included, including artifacts. No per-case tuning or output compositing.
@@ -10,6 +10,7 @@ import json
 from pathlib import Path
 import time
 
+import diffrax
 import jax
 import jax.numpy as jnp
 import matplotlib.pyplot as plt
@@ -19,7 +20,8 @@ from PIL import Image
 from cfm import methods
 from cfm.core import checkpoint
 from cfm.methods.ldf import generate_unconstrained
-from cfm.models.jit_image import DataScaleFlow
+from cfm.models.jit_image import JiTImageFlow
+from experiments.imagenet_native_tuning import SOLVERS
 from problems import imagenet
 
 STAGES = ("references", "pigdm", "ldf", "figure")
@@ -73,16 +75,35 @@ def save_image(stem, image):
     )).save(stem.with_suffix(".png"))
 
 
-def settings():
-    return {
+def settings(ldf_overrides=None, pigdm_overrides=None):
+    result = {
         "references": dict(imagenet.PROBLEM.unconstrained_gains),
         **{name: methods.get(name).config(
             **imagenet.PROBLEM.gains_for(name)
         ) for name in ("pigdm", "ldf")},
     }
+    if ldf_overrides:
+        allowed = {"dt", "penalty_weight", "rescale_factor",
+                   "rescale_exponent", "initial_dual_scale"}
+        if set(ldf_overrides) - allowed:
+            raise ValueError("Unsupported LDF gallery setting")
+        result["ldf"].update(ldf_overrides)
+    if pigdm_overrides:
+        allowed = {"dt", "guidance_scale", "eps_reg", "solver", "rtol",
+                   "atol", "max_steps"}
+        if set(pigdm_overrides) - allowed:
+            raise ValueError("Unsupported PiGDM gallery setting")
+        if (pigdm_overrides.get("rtol") is None) != (
+                pigdm_overrides.get("atol") is None):
+            raise ValueError("Specify both rtol and atol")
+        if pigdm_overrides.get("solver", "midpoint") not in SOLVERS:
+            raise ValueError("Unknown PiGDM solver")
+        result["pigdm"].update(pigdm_overrides)
+    return result
 
 
-def initialize(root, checkpoint_path, seed):
+def initialize(root, checkpoint_path, seed, ldf_overrides=None,
+               pigdm_overrides=None):
     root = Path(root)
     root.mkdir(parents=True, exist_ok=True)
     with Path(checkpoint_path).open("rb") as stream:
@@ -91,7 +112,8 @@ def initialize(root, checkpoint_path, seed):
         "experiment_seed": seed, "checkpoint_sha256": checkpoint_hash,
         "selection": "All five cases drawn before sampling; no filtering",
         "image_shape": list(imagenet.IMAGE_SHAPE),
-        "settings": settings(), "cases": make_cases(seed),
+        "settings": settings(ldf_overrides, pigdm_overrides),
+        "cases": make_cases(seed),
     }
     path = root / "plan.json"
     if path.exists():
@@ -119,7 +141,7 @@ def validate_record(record, plan, case, stage, reference, observed, image):
         "case": case, "method": stage, "settings": plan["settings"][stage],
         "reference_sha256": digest(reference),
         "mask_sha256": digest(observed),
-        "coordinates": "ldf" if stage == "ldf" else "native",
+        "coordinates": "native",
     }
     if any(record.get(k) != v for k, v in expected.items()):
         raise ValueError(f"Mismatched inputs for case {case['id']}, {stage}")
@@ -129,17 +151,26 @@ def validate_record(record, plan, case, stage, reference, observed, image):
         raise ValueError(f"Sample hash mismatch for case {case['id']}, {stage}")
 
 
-def generate(stage, root, checkpoint_path, seed):
-    plan = initialize(root, checkpoint_path, seed)
+def generate(stage, root, checkpoint_path, seed, ldf_overrides=None,
+             pigdm_overrides=None):
+    plan = initialize(root, checkpoint_path, seed, ldf_overrides,
+                      pigdm_overrides)
     model, normalizer = checkpoint.load(checkpoint_path)
-    if (not isinstance(model, DataScaleFlow)
+    if (not isinstance(model, JiTImageFlow)
             or model.data_shape != imagenet.IMAGE_SHAPE):
         raise ValueError("Expected the prepared JiT image checkpoint")
-    model, normalizer = imagenet.PROBLEM.model_for(stage, model, normalizer)
     cfg = plan["settings"][stage]
+    runtime_cfg = dict(cfg)
+    if "solver" in runtime_cfg:
+        runtime_cfg["solver"] = SOLVERS[runtime_cfg["solver"]]()
+    rtol, atol = runtime_cfg.pop("rtol", None), runtime_cfg.pop("atol", None)
+    if rtol is not None:
+        runtime_cfg["stepsize_controller"] = diffrax.PIDController(
+            rtol=rtol, atol=atol,
+        )
     if stage == "references":
         sample = jax.jit(lambda key: generate_unconstrained(
-            model, normalizer, num_samples=1, rng=key, **cfg,
+            model, normalizer, num_samples=1, rng=key, **runtime_cfg,
         ).x[0])
     else:
         method = methods.get(stage)
@@ -151,7 +182,8 @@ def generate(stage, root, checkpoint_path, seed):
                 reduction="norm" if stage == "pigdm" else "pixels",
             )
             return method.run(
-                model, normalizer, constraint, num_samples=1, rng=key, **cfg,
+                model, normalizer, constraint, num_samples=1, rng=key,
+                **runtime_cfg,
             ).x[0]
 
     for case in plan["cases"]:
@@ -193,7 +225,9 @@ def generate(stage, root, checkpoint_path, seed):
         record = {
             "checkpoint_sha256": plan["checkpoint_sha256"],
             "case": case, "method": stage, "settings": cfg,
-            "coordinates": "ldf" if stage == "ldf" else "native",
+            "coordinates": "native",
+            "model": {"class_index": model.label, "cfg": model.cfg,
+                      "noise_scale": model.noise_scale, "t_eps": model.t_eps},
             "reference_sha256": digest(reference),
             "mask_sha256": digest(observed), "sample_sha256": digest(image),
             "seconds": seconds, "min": float(image.min()),
@@ -247,10 +281,26 @@ def comparison(root, figure_path):
                 f"Known MAE {record['observed_mae']:.2g} · "
                 f"max {record['observed_max_error']:.2g}", fontsize=9,
             )
-    fig.subplots_adjust(left=.045, right=.995, top=.97, bottom=.055,
+    fig.subplots_adjust(left=.045, right=.995, top=.97, bottom=.065,
                         wspace=.025, hspace=.13)
-    fig.text(.5, .012, "Five random cases, no selection or per-case tuning. "
-             "Same pretrained weights; LDF uses image coordinates.\n"
+    gains = plan["settings"]["ldf"]
+    initialization = gains.get("initial_dual_scale", 0.) or 0.
+    ldf_label = (
+        f"LDF: c={gains['penalty_weight']:g}, "
+        f"p={gains['rescale_exponent']:g}, "
+        f"λ₀={initialization:g}G(x₀), dt={gains['dt']:g}."
+    )
+    pigdm = plan["settings"]["pigdm"]
+    pigdm_label = (
+        f"PiGDM: {pigdm.get('solver', 'midpoint')}, "
+        f"guidance={pigdm['guidance_scale']:g}, dt₀={pigdm['dt']:g}"
+    )
+    if pigdm.get("rtol") is not None:
+        pigdm_label += f", rtol={pigdm['rtol']:g}, atol={pigdm['atol']:g}"
+    fig.text(.5, .012, "Five random cases, all retained; "
+             "one configuration per method. "
+             "Same pretrained velocity model and image coordinates.\n"
+             + ldf_label + "\n" + pigdm_label + ".\n"
              "Gray regions are missing. Raw sampler outputs; no pixel "
              "compositing or final projection.", ha="center", fontsize=10)
     path = Path(figure_path)
@@ -266,15 +316,25 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--stage", choices=STAGES, required=True)
     parser.add_argument("--checkpoint", default=imagenet.CHECKPOINT_PATH)
-    parser.add_argument("--output-dir", default="results/imagenet_gallery")
+    parser.add_argument("--output-dir",
+                        default="results/imagenet_native_gallery")
     parser.add_argument("--seed", type=int, default=20261107)
+    parser.add_argument("--ldf-settings",
+                        help="JSON gain/initial-dual overrides, fixed per case")
+    parser.add_argument("--pigdm-settings",
+                        help="JSON guidance/solver overrides, fixed per case")
     parser.add_argument("--figure",
-                        default="plots/figures/imagenet_inpainting_five.png")
+                        default="plots/figures/imagenet_native_inpainting_five.png")
     args = parser.parse_args()
     if args.stage == "figure":
         comparison(args.output_dir, args.figure)
     else:
-        generate(args.stage, args.output_dir, args.checkpoint, args.seed)
+        overrides = (None if args.ldf_settings is None else
+                     json.loads(Path(args.ldf_settings).read_text()))
+        pigdm_overrides = (None if args.pigdm_settings is None else
+                          json.loads(Path(args.pigdm_settings).read_text()))
+        generate(args.stage, args.output_dir, args.checkpoint, args.seed,
+                 overrides, pigdm_overrides)
 
 
 if __name__ == "__main__":

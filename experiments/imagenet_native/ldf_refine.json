@@ -1,0 +1,35 @@
+[
+  {
+    "name": "c10_p1_cancel1_smallstep",
+    "method": "ldf",
+    "penalty_weight": 10.0,
+    "rescale_exponent": 1.0,
+    "dual_cancel": 1.0,
+    "dt": 0.0005
+  },
+  {
+    "name": "c20_p1_cancel1_smallstep",
+    "method": "ldf",
+    "penalty_weight": 20.0,
+    "rescale_exponent": 1.0,
+    "dual_cancel": 1.0,
+    "dt": 0.0005
+  },
+  {
+    "name": "c40_p1_cancel1_smallstep",
+    "method": "ldf",
+    "penalty_weight": 40.0,
+    "rescale_exponent": 1.0,
+    "dual_cancel": 1.0,
+    "dt": 0.0005
+  },
+  {
+    "name": "c20_p1_cancel1_heun",
+    "method": "ldf",
+    "penalty_weight": 20.0,
+    "rescale_exponent": 1.0,
+    "dual_cancel": 1.0,
+    "dt": 0.0005,
+    "solver": "heun"
+  }
+]

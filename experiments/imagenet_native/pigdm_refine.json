@@ -1,0 +1,20 @@
+[
+  {
+    "name": "pigdm_g03_smallstep",
+    "method": "pigdm",
+    "dt": 0.0005,
+    "guidance_scale": 0.3
+  },
+  {
+    "name": "pigdm_g045_smallstep",
+    "method": "pigdm",
+    "dt": 0.0005,
+    "guidance_scale": 0.45
+  },
+  {
+    "name": "pigdm_g06_smallstep",
+    "method": "pigdm",
+    "dt": 0.0005,
+    "guidance_scale": 0.6
+  }
+]

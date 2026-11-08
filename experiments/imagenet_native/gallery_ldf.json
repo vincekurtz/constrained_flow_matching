@@ -1,0 +1,7 @@
+{
+  "penalty_weight": 40.0,
+  "rescale_factor": 1.0,
+  "rescale_exponent": 1.0,
+  "dt": 0.0005,
+  "initial_dual_scale": -1.0
+}

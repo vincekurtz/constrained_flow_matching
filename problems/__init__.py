@@ -40,8 +40,6 @@ class Problem:
         supported_methods: Optional restriction for expensive examples.
         save_figure: Optional ``(problem, samples, constraint, **opts)``
             exporter accepting ``output_path`` and ``show=False``.
-        adapt_model: Optional ``(model, normalizer, method_name)`` adapter
-            returning a model/normalizer pair for inference.
         retain_trajectory: Whether the CLI should retain trajectories.
             False keeps only a final snapshot for large image examples.
     """
@@ -63,7 +61,6 @@ class Problem:
     checkpoint: str = ""
     supported_methods: Optional[tuple[str, ...]] = None
     save_figure: Optional[Callable[..., None]] = None
-    adapt_model: Optional[Callable[..., tuple]] = None
     retain_trajectory: bool = True
 
     @property
@@ -84,11 +81,6 @@ class Problem:
             **self.method_constraint_options.get(method_name, {}), **options,
         })
 
-    def model_for(self, method_name, model, normalizer):
-        """Apply an example's model-coordinate adapter, if provided."""
-        if self.adapt_model is None:
-            return model, normalizer
-        return self.adapt_model(model, normalizer, method_name)
 
 
 def _registry() -> Dict[str, Problem]:

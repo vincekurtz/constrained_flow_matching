@@ -204,7 +204,6 @@ def run_case(case: Case, results_dir: Path = RESULTS_DIR) -> Dict[str, Any]:
     problem = problems.get(case.problem)
     method = methods.get(case.method)
     model, normalizer = checkpoint.load(problem.checkpoint_path)
-    model, normalizer = problem.model_for(case.method, model, normalizer)
     constraint = problem.constraint_for(case.method, **case.problem_options)
 
     cfg = dict(case.gains)

@@ -1,0 +1,32 @@
+[
+  {
+    "name": "prior_case_1",
+    "method": "unconstrained",
+    "seed": 1477148235,
+    "cfg": 2.3
+  },
+  {
+    "name": "prior_case_2",
+    "method": "unconstrained",
+    "seed": 314974814,
+    "cfg": 2.3
+  },
+  {
+    "name": "prior_case_3",
+    "method": "unconstrained",
+    "seed": 314661697,
+    "cfg": 2.3
+  },
+  {
+    "name": "prior_case_4",
+    "method": "unconstrained",
+    "seed": 436831462,
+    "cfg": 2.3
+  },
+  {
+    "name": "prior_case_5",
+    "method": "unconstrained",
+    "seed": 884548925,
+    "cfg": 2.3
+  }
+]
