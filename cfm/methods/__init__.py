@@ -5,7 +5,7 @@ from typing import Any, Callable, Dict, FrozenSet
 
 from cfm.core.constraints import EQUALITY, INEQUALITY, Constraint
 from cfm.core.solve import Samples
-from cfm.methods import cbf, ldf, pcfm, pigdm, time_varying_penalty
+from cfm.methods import cbf, dps, ldf, pcfm, pigdm, time_varying_penalty
 
 BOTH = frozenset({EQUALITY, INEQUALITY})
 
@@ -120,6 +120,15 @@ PIGDM = Method(
     defaults={"guidance_scale": 1.0, "eps_reg": 1e-4},
 )
 
+DPS = Method(
+    name="dps",
+    label="DPS",
+    generate=dps.generate,
+    supports=frozenset({EQUALITY}),
+    # Bottom of the paper's 0.1-1 range; 1 diverges on nonlinear g here.
+    defaults={"step_size": 0.1},
+)
+
 CBF = Method(
     name="cbf",
     label="CBF safety filter (SafeFlow)",
@@ -135,11 +144,14 @@ CBF = Method(
 )
 
 METHODS: Dict[str, Method] = {
-    m.name: m for m in (LDF, PENALTY, TIME_VARYING_PENALTY, PCFM, PIGDM, CBF)
+    m.name: m
+    for m in (LDF, PENALTY, TIME_VARYING_PENALTY, PCFM, PIGDM, DPS, CBF)
 }
 
 # Methods that take `dt`; PCFM takes `num_steps` instead.
-USES_DT = frozenset({"ldf", "penalty", "time_varying_penalty", "pigdm", "cbf"})
+USES_DT = frozenset({
+    "ldf", "penalty", "time_varying_penalty", "pigdm", "dps", "cbf",
+})
 
 
 def get(name: str) -> Method:
@@ -159,6 +171,6 @@ def supporting(constraint: Constraint):
 
 
 __all__ = [
-    "METHODS", "Method", "LDF", "PENALTY", "PCFM", "PIGDM", "CBF",
+    "METHODS", "Method", "LDF", "PENALTY", "PCFM", "PIGDM", "DPS", "CBF",
     "TIME_VARYING_PENALTY", "USES_DT", "get", "supporting",
 ]

@@ -36,6 +36,7 @@ PROBLEM = Problem(
     method_gains={
         "ldf": {"penalty_weight": 5.0, "num_projection_iters": 2},
         "time_varying_penalty": {"penalty_weight": 5.0},
+        "dps": {"step_size": 0.03},
         "penalty": {"penalty_weight": 5.0, "num_projection_iters": 2},
     },
     options={

@@ -53,6 +53,7 @@ GENERATION_FLAGS = {
     },
     "--guidance-scale": {"type": float, "help": "PiGDM guidance weight."},
     "--eps-reg": {"type": float, "help": "Tikhonov regulariser."},
+    "--step-size": {"type": float, "help": "DPS step size zeta'."},
     "--phi0": {"type": float, "help": "CBF class-K gain."},
     "--omega": {"type": float, "help": "CBF blow-up gain."},
     "--qp": {"choices": ["exact", "elastic"], "help": "CBF QP formulation."},

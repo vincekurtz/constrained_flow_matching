@@ -1,9 +1,12 @@
 """Behavior specific to individual baselines."""
 
 import jax.numpy as jnp
+import numpy as np
 import pytest
 
-from cfm.methods import cbf, ldf, pcfm, pigdm
+from cfm.core.constraints import inequality
+from cfm.core.solve import wrap_constraint
+from cfm.methods import cbf, dps, ldf, pcfm, pigdm
 from tests.conftest import DT, NUM_SAMPLES, SEED
 
 STEPS = int(1 / DT)
@@ -84,6 +87,66 @@ def test_pigdm_stronger_guidance_tightens_the_constraint(
     ))
     assert (float(jnp.mean(circle.violations(strong.x)))
             < float(jnp.mean(circle.violations(pigdm_unguided.x))))
+
+
+# --------------------------------------------------------------------------
+# DPS
+# --------------------------------------------------------------------------
+
+
+class LinearVelocity:
+    """v(x, t) = a x, so the clean estimate is (1 + (1 - t) a) x."""
+
+    data_shape = (2,)
+
+    def __init__(self, a):
+        self.a = a
+
+    def __call__(self, x, t):
+        return self.a * x
+
+
+def test_dps_drift_is_normalized_and_backpropagates_through_the_model(
+    identity_normalizer,
+):
+    # g(x) = 3 x[0]: grad_x ||g(mu)|| = 3 sign(mu_0) (1 + (1 - t) a) e_0.
+    a, t, zeta, dt = 0.5, 0.2, 0.1, 0.05
+    residual = wrap_constraint(lambda x: 3 * x[0], identity_normalizer, (2,))
+    flow = dps.dps_flow(LinearVelocity(a), residual, (2,),
+                        step_size=zeta, dt=dt)
+    x = jnp.array([[2., 1.], [-4., 1.], [0., 1.]])
+    dmu = 1 + (1 - t) * a
+    guide = 2 * zeta / dt * 3 * dmu
+    np.testing.assert_allclose(flow(t, x, None), [
+        [2 * a - guide, a], [-4 * a + guide, a], [0., a],
+    ], rtol=1e-6)
+
+
+@pytest.fixture(scope="session")
+def dps_unguided(run_once, model, normalizer, circle):
+    return run_once("dps:unguided", lambda: dps.generate(
+        model, normalizer, circle, dt=DT, step_size=0.0, **COMMON
+    ))
+
+
+def test_dps_step_size_zero_ignores_the_constraint(dps_unguided, baseline):
+    # Per-sample model calls round differently from the batched baseline.
+    assert jnp.allclose(dps_unguided.xs[-2], baseline.xs[-1], atol=1e-3)
+
+
+def test_dps_guidance_tightens_the_constraint(
+    run_once, model, normalizer, circle, dps_unguided
+):
+    guided = run_once("dps:guided", lambda: dps.generate(
+        model, normalizer, circle, dt=DT, step_size=0.02, **COMMON
+    ))
+    assert (float(jnp.mean(circle.violations(guided.x)))
+            < float(jnp.mean(circle.violations(dps_unguided.x))))
+
+
+def test_dps_rejects_inequalities(model, normalizer):
+    with pytest.raises(ValueError, match="equality constraints only"):
+        dps.generate(model, normalizer, inequality(lambda x: x[0]))
 
 
 # --------------------------------------------------------------------------

@@ -42,7 +42,8 @@ gains = { throw = false }
 [[block]]
 problems = ["star", "mnist"]
 problem_label = { star = "Star (eq.)" }
-methods = ["pigdm", "pcfm", "penalty", "time_varying_penalty", "ldf", "ldf_projected"]
+methods = ["pigdm", "dps", "pcfm", "penalty", "time_varying_penalty",
+           "ldf", "ldf_projected"]
 steps = [100]
 
 # Shared by both LDF rows and the penalty ablation.
@@ -55,6 +56,17 @@ penalty_weight = 5.0
 method = ["ldf", "penalty", "time_varying_penalty"]
 problem = "mnist"
 penalty_weight = 20.0
+
+# DPS step size zeta' (per-step, as in Chung et al.), chosen by mean
+# violation on 200 star samples: a coarse grid {0.01, ..., 1} on seed 0,
+# then {0.015, 0.02, 0.03, 0.05, 0.07} on seed 1.
+[[block.gains]]
+method = "dps"
+problem = "star"
+step_size = 0.03
+
+# TODO: MNIST uses the registry default zeta' = 0.1, untuned. Sweep it
+# once data/mnist_model.pkl exists.
 
 # --- Star with a right-half-plane inequality, dt = 0.01 ---
 
