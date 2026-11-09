@@ -58,6 +58,7 @@ Methods are registered in `cfm/methods/__init__.py` and problems in
 |------|-------------|-------------|
 | `ldf` | Lagrangian Dual Flows (ours) | equality, inequality |
 | `penalty` | Quadratic penalty on constraint violation | equality, inequality |
+| `time_varying_penalty` | Quadratic penalty scaled by `1/(1-t)^2` | equality, inequality |
 | `pcfm` | [Physics-constrained flow matching](https://arxiv.org/abs/2506.04171) | equality |
 | `pigdm` | [Pseudoinverse guidance](https://arxiv.org/abs/2310.04432) | equality |
 | `cbf` | [SafeFlow](https://arxiv.org/abs/2504.08661) control barrier function filter | inequality |
@@ -247,6 +248,41 @@ Each sweep case writes a JSON file to `results/`. Completed cases are skipped
 unless `--force` is passed. `--check-baseline` fails if any case regressed
 relative to `experiments/baseline.json`. See `experiments/table1.toml` for the
 config format.
+
+The time-varying penalty uses
+`xdot = v(x,t) - c^2 J_g(x)^T g(x)/(1-t)^2`, with positive-part residuals
+for inequalities. As with the constant penalty, `--penalty-weight` sets
+the residual scale `c`, so the quadratic coefficient is `c^2`. This method
+has no dual state or final projection. It stops at `t1 = 1-dt` by default
+(the usual final saved time of LDF); its Python API accepts an explicit
+`t1 < 1`. The singular denominator is not clipped. Table 1 uses the same
+fixed-step Midpoint resolution and residual weights as the constant
+penalty; failed samples are counted, and all-failed cells display `failed`.
+
+The adaptive star/unit-circle study produces two additional figures:
+
+```bash
+uv run python plots.py --plot time_varying_penalty --regenerate
+```
+
+It compares constant penalty, time-varying penalty, and unprojected LDF
+with the same 64 initial samples, `t1=0.99`, and adaptive Dopri5
+(`rtol=atol=1e-5`, initial step `0.001`, no minimum step). Denoising steps
+count accepted **and rejected** steps for the jointly integrated batch.
+All runs use float32 and a 100,000-step budget. The cache in
+`plots/data/time_varying_penalty.json` records per-sample violations,
+accepted/rejected steps, failures, settings, and the checkpoint hash.
+Failures are marked at the top of the penalty-weight figure and excluded
+from the cost-versus-violation curve because they have no terminal sample.
+PNG and vector PDF outputs are in `plots/figures/time_varying_penalty_*`.
+
+`uv run -m experiments.table1 --run` runs the configured cases and exports
+`plots/table1.tex`, `plots/table1.csv`, and `plots/data/table1.json`.
+Use `--available-only` to explicitly allow missing checkpoints, and
+`--force` to refresh timings. The checked-in export is incomplete: it
+contains CPU measurements on regenerated star and obstacle models;
+MNIST, Walker2D, and Hopper await their trained checkpoints. Pending cases
+are listed in the JSON, separately from numerical failures.
 
 ## Paper reproduction
 

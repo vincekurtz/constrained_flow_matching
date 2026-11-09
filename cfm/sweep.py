@@ -6,6 +6,7 @@ grid. Each case writes one result file, and cases already on disk are skipped.
 
 import hashlib
 import json
+import math
 import platform
 import subprocess
 import time
@@ -233,6 +234,10 @@ def run_case(case: Case, results_dir: Path = RESULTS_DIR) -> Dict[str, Any]:
         violations.append(float(constraint.violation(sample)))
 
     v = jnp.array(violations)
+    num_failed = int(jnp.sum(~jnp.isfinite(v)))
+    v = jnp.where(jnp.isfinite(v), v, jnp.nan)
+    with open(problem.checkpoint_path, "rb") as f:
+        checkpoint_sha256 = hashlib.file_digest(f, "sha256").hexdigest()
     record = {
         "problem": case.problem,
         "problem_label": case.problem_label or problem.label,
@@ -249,9 +254,12 @@ def run_case(case: Case, results_dir: Path = RESULTS_DIR) -> Dict[str, Any]:
         "mean_time_ms": 1000 * sum(times) / len(times),
         "mean_violation": float(jnp.nanmean(v)),
         "max_violation": float(jnp.nanmax(v)),
-        "num_nan": int(jnp.sum(jnp.isnan(v))),
+        "num_nan": num_failed,
+        "num_failed": num_failed,
         "git_sha": _git_sha(),
         "platform": platform.platform(),
+        "devices": [str(d) for d in jax.devices()],
+        "checkpoint_sha256": checkpoint_sha256,
     }
 
     results_dir.mkdir(parents=True, exist_ok=True)
@@ -310,13 +318,16 @@ def render_table(records, fmt: str = "markdown") -> str:
     header = ["Problem", "Steps", "Method", "Time (ms)", "Violation"]
     body = []
     for r in rows:
-        note = f" ({r['num_nan']} NaN)" if r.get("num_nan") else ""
+        note = (f" ({r['num_nan']} failed)"
+                if r.get("num_nan") else "")
+        violation = (f"{r['mean_violation']:.2e}"
+                     if math.isfinite(r["mean_violation"]) else "failed")
         body.append([
             r.get("problem_label") or problems.get(r["problem"]).label,
             str(r["steps"]),
             r["method_label"],
             f"{r['mean_time_ms']:.2f}",
-            f"{r['mean_violation']:.2e}{note}",
+            f"{violation}{note}",
         ])
 
     if fmt == "latex":
@@ -341,6 +352,7 @@ def render_table(records, fmt: str = "markdown") -> str:
 # (row name, header) for the LaTeX columns. Unlisted rows are appended.
 LATEX_COLUMNS = [
     ("penalty", "Penalty only"),
+    ("time_varying_penalty", "Time-varying penalty"),
     ("cbf", r"CBF~\cite{safeflow2025}"),
     ("pcfm", r"PCFM~\cite{utkarsh2025pcfm}"),
     ("pigdm", r"$\Pi$GDM~\cite{pokle2024training}"),
@@ -356,6 +368,8 @@ LATEX_VIOLATION_THRESHOLD = 1e-6
 
 def _latex_violation(value: float, num_nan: int) -> str:
     r"""Format a violation with the paper's ``\sci``/``\scib`` macros."""
+    if not math.isfinite(value):
+        return r"\textit{failed}"
     if value == 0:
         cell = r"\textbf{0}"
     else:
@@ -436,7 +450,10 @@ def render_latex_table(records) -> str:
         if i and row[0] != rows[i - 1][0]:
             lines.append(r"\midrule")
         per_row = cells[row]
-        fastest = min(r["mean_time_ms"] for r in per_row.values())
+        fastest = min(
+            (r["mean_time_ms"] for r in per_row.values()
+             if math.isfinite(r["mean_violation"])), default=math.inf,
+        )
         out = [row[2]]
         for name, _ in columns:
             r = per_row.get(name)
@@ -444,7 +461,8 @@ def render_latex_table(records) -> str:
                 out += ["---", "---"]
                 continue
             time_ms = f"{r['mean_time_ms']:.1f}"
-            if r["mean_time_ms"] <= LATEX_TIME_FACTOR * fastest:
+            if (math.isfinite(r["mean_violation"])
+                    and r["mean_time_ms"] <= LATEX_TIME_FACTOR * fastest):
                 time_ms = rf"\textbf{{{time_ms}}}"
             out += [time_ms,
                     _latex_violation(r["mean_violation"],

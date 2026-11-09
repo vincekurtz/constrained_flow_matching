@@ -160,7 +160,9 @@ def test_the_shipped_table1_config_expands():
     assert ("Star (ineq.)", "Penalty only") in rows
     assert (_ldf_weights(inequality, "penalty")
             == _ldf_weights(inequality))
-    assert {c.method for c in inequality} == {"cbf", "penalty", "ldf"}
+    assert {c.method for c in inequality} == {
+        "cbf", "penalty", "time_varying_penalty", "ldf",
+    }
     # Penalty-only runs at LDF's weight on every inequality problem.
     for problem in ("obstacles", "walker2d", "hopper"):
         weights = {c.method: c.gains["penalty_weight"]
@@ -245,9 +247,10 @@ def test_latex_table_pivots_methods_into_column_pairs():
     lines = sweep.render_latex_table(records).splitlines()
     rows = [line for line in lines if line.startswith("Star")]
     assert rows == [
-        r"Star & --- & --- & --- & --- & 29.6 & \scib{4.5}{-8} & --- & --- "
+        r"Star & --- & --- & --- & --- & --- & --- & 29.6 "
+        r"& \scib{4.5}{-8} & --- & --- "
         r"& \textbf{7.7} & \sci{2.6}{-3} & --- & --- \\",
-        r"Star (ineq.) & --- & --- & 318.0 & \textbf{0}~$\dagger$ "
+        r"Star (ineq.) & --- & --- & --- & --- & 318.0 & \textbf{0}~$\dagger$ "
         r"& --- & --- & --- & --- & --- & --- & \textbf{7.9} & \textbf{0} \\",
     ]
     assert lines.index(rows[1]) == lines.index(rows[0]) + 2

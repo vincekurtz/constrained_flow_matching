@@ -1,5 +1,6 @@
 """The contract every registered method must satisfy."""
 
+import diffrax
 import jax
 import jax.numpy as jnp
 import pytest
@@ -27,6 +28,12 @@ def run(method, model, normalizer, constraint, **overrides):
         cfg.setdefault("num_steps", int(1 / DT))
     if method.name in ("ldf", "penalty"):
         cfg.setdefault("penalty_weight", PENALTY_WEIGHT)
+    if method.name == "time_varying_penalty":
+        cfg.setdefault("penalty_weight", PENALTY_WEIGHT)
+        cfg.setdefault("solver", diffrax.Dopri5())
+        cfg.setdefault("stepsize_controller", diffrax.PIDController(
+            rtol=1e-5, atol=1e-5,
+        ))
     return method.run(model, normalizer, constraint, **cfg)
 
 

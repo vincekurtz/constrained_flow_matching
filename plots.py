@@ -24,6 +24,7 @@ from cfm import methods
 from cfm.core import checkpoint
 from cfm.methods import ldf, pcfm, pigdm
 from cfm.methods.ldf import generate_unconstrained
+from experiments.time_varying_penalty import plot_study
 
 
 DATA_DIR = Path("plots/data")
@@ -1471,6 +1472,7 @@ def plot_overview(regenerate: bool = False, point_size: float = 2.0):
 # ============================================================================
 
 PLOTS = {
+    "time_varying_penalty": plot_study,
     "violation_vs_penalty": plot_violation_vs_penalty,
     "mnist_violation_vs_penalty": plot_mnist_violation_vs_penalty,
     "constrained_star": plot_constrained_star,

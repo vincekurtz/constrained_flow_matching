@@ -35,6 +35,7 @@ PROBLEM = Problem(
     plot=scatter_plot((-2, 2)),
     method_gains={
         "ldf": {"penalty_weight": 5.0, "num_projection_iters": 2},
+        "time_varying_penalty": {"penalty_weight": 5.0},
         "penalty": {"penalty_weight": 5.0, "num_projection_iters": 2},
     },
     options={

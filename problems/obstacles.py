@@ -111,6 +111,9 @@ PROBLEM = Problem(
     plot=plot,
     method_gains={
         "ldf": dict(SLACK_GAINS["closed_form"], num_projection_iters=5),
+        "time_varying_penalty": {
+            "penalty_weight": SLACK_GAINS["closed_form"]["penalty_weight"],
+        },
         "penalty": {
             "penalty_weight": SLACK_GAINS["closed_form"]["penalty_weight"],
             "num_projection_iters": 5,

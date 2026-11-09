@@ -203,6 +203,7 @@ def make_problem(spec: LocomotionSpec) -> Problem:
                 "rescale_factor": 10.0,
                 "num_projection_iters": 1,
             },
+            "time_varying_penalty": {"penalty_weight": 20.0},
             "penalty": {
                 "penalty_weight": 20.0,
                 "num_projection_iters": 1,

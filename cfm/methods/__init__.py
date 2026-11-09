@@ -5,7 +5,7 @@ from typing import Any, Callable, Dict, FrozenSet
 
 from cfm.core.constraints import EQUALITY, INEQUALITY, Constraint
 from cfm.core.solve import Samples
-from cfm.methods import cbf, ldf, pcfm, pigdm
+from cfm.methods import cbf, ldf, pcfm, pigdm, time_varying_penalty
 
 BOTH = frozenset({EQUALITY, INEQUALITY})
 
@@ -89,6 +89,14 @@ PENALTY = Method(
     locked={"rescale_factor": 0.0, "initial_dual_scale": None},
 )
 
+TIME_VARYING_PENALTY = Method(
+    name="time_varying_penalty",
+    label="Time-varying penalty",
+    generate=time_varying_penalty.generate,
+    supports=BOTH,
+    defaults={"penalty_weight": 5.0},
+)
+
 PCFM = Method(
     name="pcfm",
     label="PCFM",
@@ -127,11 +135,11 @@ CBF = Method(
 )
 
 METHODS: Dict[str, Method] = {
-    m.name: m for m in (LDF, PENALTY, PCFM, PIGDM, CBF)
+    m.name: m for m in (LDF, PENALTY, TIME_VARYING_PENALTY, PCFM, PIGDM, CBF)
 }
 
 # Methods that take `dt`; PCFM takes `num_steps` instead.
-USES_DT = frozenset({"ldf", "penalty", "pigdm", "cbf"})
+USES_DT = frozenset({"ldf", "penalty", "time_varying_penalty", "pigdm", "cbf"})
 
 
 def get(name: str) -> Method:
@@ -152,5 +160,5 @@ def supporting(constraint: Constraint):
 
 __all__ = [
     "METHODS", "Method", "LDF", "PENALTY", "PCFM", "PIGDM", "CBF",
-    "USES_DT", "get", "supporting",
+    "TIME_VARYING_PENALTY", "USES_DT", "get", "supporting",
 ]

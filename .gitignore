@@ -11,6 +11,10 @@ wheels/
 
 # Saved models
 data
+!plots/data/
+plots/data/*
+!plots/data/time_varying_penalty.json
+!plots/data/table1.json
 experiments/baseline_raw/
 results/
 
