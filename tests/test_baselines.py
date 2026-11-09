@@ -5,6 +5,7 @@ import numpy as np
 import pytest
 
 from cfm.core.constraints import inequality
+from cfm.core import posterior_variance
 from cfm.core.solve import wrap_constraint
 from cfm.methods import cbf, dps, ldf, pcfm, pigdm
 from tests.conftest import DT, NUM_SAMPLES, SEED
@@ -87,6 +88,55 @@ def test_pigdm_stronger_guidance_tightens_the_constraint(
     ))
     assert (float(jnp.mean(circle.violations(strong.x)))
             < float(jnp.mean(circle.violations(pigdm_unguided.x))))
+
+
+# --------------------------------------------------------------------------
+# OPC (PiGDM with an estimated posterior variance)
+# --------------------------------------------------------------------------
+
+
+class ZeroVelocity:
+    data_shape = (2,)
+
+    def __call__(self, x, t):
+        return jnp.zeros_like(x)
+
+
+def test_posterior_variance_estimate_matches_closed_form(identity_normalizer):
+    # v = 0 gives mu = x_t, so x1 - mu = (1 - t)(x1 - x0) and, for x1 = 1,
+    # r_t^2 = (1 - t)^2 (1 + 1).
+    data = jnp.ones((4096, 2))
+    ts, r2 = posterior_variance.estimate(
+        ZeroVelocity(), identity_normalizer, data, num_times=5, num_noise=4)
+    np.testing.assert_allclose(r2, 2 * (1 - ts) ** 2, rtol=0.03)
+
+
+def test_posterior_variance_round_trips_and_reports_missing_tables(tmp_path):
+    path = tmp_path / "table.json"
+    posterior_variance.save(path, [0., 1.], [1., 0.], problem="toy")
+    ts, r2 = posterior_variance.load(path)
+    np.testing.assert_array_equal(ts, [0., 1.])
+    np.testing.assert_array_equal(r2, [1., 0.])
+    with pytest.raises(FileNotFoundError, match="posterior_variance"):
+        posterior_variance.load(tmp_path / "missing.json")
+
+
+def test_opc_with_the_pigdm_prior_reproduces_pigdm(
+    run_once, model, normalizer, circle,
+):
+    ts = jnp.linspace(0., 1., 2001)
+    prior = (1 - ts) ** 2 / (ts ** 2 + (1 - ts) ** 2)
+    opc = pigdm.generate_opc(model, normalizer, circle, dt=DT,
+                             posterior_variance=(ts, prior), **COMMON)
+    ref = run_once("pigdm:guided", lambda: pigdm.generate(
+        model, normalizer, circle, dt=DT, guidance_scale=1.0, **COMMON
+    ))
+    np.testing.assert_allclose(opc.x, ref.x, atol=1e-3)
+
+
+def test_opc_requires_a_variance_table(model, normalizer, circle):
+    with pytest.raises(ValueError, match="posterior_variance"):
+        pigdm.generate_opc(model, normalizer, circle, dt=DT, **COMMON)
 
 
 # --------------------------------------------------------------------------

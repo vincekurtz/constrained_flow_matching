@@ -1,7 +1,12 @@
-"""PiGDM (pseudo-inverse guidance) baseline.
+"""PiGDM (pseudo-inverse guidance) baseline, and its OPC variant.
 
 Pokle et al. 2023, https://arxiv.org/abs/2310.04432. Specialized to the
 noise-free constraint ``g(x) = 0``, with the Jacobian of ``g`` from autodiff.
+
+OPC (Peng et al. 2024, https://arxiv.org/abs/2402.02149, "Analytic"
+variant) is the same update with PiGDM's Gaussian-prior variance ``r_t^2``
+replaced by a Monte Carlo estimate from data; see
+``cfm.core.posterior_variance``.
 """
 
 from typing import Callable, Tuple
@@ -11,6 +16,7 @@ from flax import nnx
 import jax
 import jax.numpy as jnp
 
+from cfm.core import posterior_variance as pv
 from cfm.core.constraints import EQUALITY, Constraint
 from cfm.core.solve import (
     Samples,
@@ -36,6 +42,7 @@ def generate_pigdm(
     stepsize_controller: diffrax.AbstractStepSizeController = None,
     max_steps: int = 4096,
     save_trajectory: bool = True,
+    posterior_variance: Tuple[jax.Array, jax.Array] = None,
 ) -> Tuple[jax.Array, jax.Array]:
     """Generate samples satisfying ``g(x) = 0`` with PiGDM guidance.
 
@@ -54,6 +61,8 @@ def generate_pigdm(
         stepsize_controller: Defaults to ConstantStepSize.
         max_steps: Solver step cap; 4096 preserves the Diffrax default.
         save_trajectory: False saves only the same final image at t=1.
+        posterior_variance: ``(ts, r2)`` table, linearly interpolated, in
+            place of the default ``r_t^2``.
     """
     rng = resolve_rng(rng, seed)
     data_shape = model.data_shape
@@ -65,7 +74,10 @@ def generate_pigdm(
         x_flat = x.reshape((x.shape[0], -1))
 
         # Eq. 16.
-        r_t_sq = (1.0 - t) ** 2 / (t ** 2 + (1.0 - t) ** 2)
+        if posterior_variance is None:
+            r_t_sq = (1.0 - t) ** 2 / (t ** 2 + (1.0 - t) ** 2)
+        else:
+            r_t_sq = jnp.interp(t, *posterior_variance)
         # Floored to keep the first step finite.
         vf_scale = (1.0 - t) / jnp.maximum(t, 0.1)
 
@@ -127,3 +139,26 @@ def generate(
         )
     x, xs = generate_pigdm(model, normalizer, constraint.fn, **kwargs)
     return Samples(x, xs)
+
+
+def generate_opc(
+    model: nnx.Module,
+    normalizer: Normalizer,
+    constraint: Constraint,
+    posterior_variance=None,
+    **kwargs,
+) -> Samples:
+    """Registry entry point for OPC: PiGDM with an estimated ``r_t^2``.
+
+    ``posterior_variance`` is a JSON table path or a ``(ts, r2)`` pair.
+    """
+    if posterior_variance is None:
+        raise ValueError(
+            "OPC needs a posterior_variance table; estimate one with "
+            "`uv run -m experiments.posterior_variance --problem <name>`"
+        )
+    if isinstance(posterior_variance, (str, bytes)) or hasattr(
+            posterior_variance, "__fspath__"):
+        posterior_variance = pv.load(posterior_variance)
+    return generate(model, normalizer, constraint,
+                    posterior_variance=posterior_variance, **kwargs)

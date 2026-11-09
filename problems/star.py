@@ -37,6 +37,9 @@ PROBLEM = Problem(
         "ldf": {"penalty_weight": 5.0, "num_projection_iters": 2},
         "time_varying_penalty": {"penalty_weight": 5.0},
         "dps": {"step_size": 0.03},
+        "opc": {
+            "posterior_variance": "experiments/posterior_variance/star.json",
+        },
         "penalty": {"penalty_weight": 5.0, "num_projection_iters": 2},
     },
     options={

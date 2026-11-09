@@ -42,8 +42,8 @@ gains = { throw = false }
 [[block]]
 problems = ["star", "mnist"]
 problem_label = { star = "Star (eq.)" }
-methods = ["pigdm", "dps", "pcfm", "penalty", "time_varying_penalty",
-           "ldf", "ldf_projected"]
+methods = ["pigdm", "opc", "dps", "pcfm", "penalty",
+           "time_varying_penalty", "ldf", "ldf_projected"]
 steps = [100]
 
 # Shared by both LDF rows and the penalty ablation.
@@ -56,6 +56,9 @@ penalty_weight = 5.0
 method = ["ldf", "penalty", "time_varying_penalty"]
 problem = "mnist"
 penalty_weight = 20.0
+
+# OPC uses the variance table named in each problem's gains; build it
+# with `uv run -m experiments.posterior_variance --problem <name>`.
 
 # DPS step size zeta' (per-step, as in Chung et al.), chosen by mean
 # violation on 200 star samples: a coarse grid {0.01, ..., 1} on seed 0,

@@ -356,6 +356,7 @@ LATEX_COLUMNS = [
     ("cbf", r"CBF~\cite{safeflow2025}"),
     ("pcfm", r"PCFM~\cite{utkarsh2025pcfm}"),
     ("pigdm", r"$\Pi$GDM~\cite{pokle2024training}"),
+    ("opc", r"OPC~\cite{peng2024improving}"),
     ("dps", r"DPS~\cite{chung2023diffusion}"),
     ("ldf", "LDF (no proj.)"),
     ("ldf_projected", "LDF + proj."),

@@ -103,6 +103,9 @@ PROBLEM = Problem(
     method_gains={
         "ldf": {"penalty_weight": 10.0, "num_projection_iters": 2},
         "time_varying_penalty": {"penalty_weight": 10.0},
+        "opc": {
+            "posterior_variance": "experiments/posterior_variance/mnist.json",
+        },
         "penalty": {"penalty_weight": 10.0, "num_projection_iters": 2},
         "pcfm": {"correction_weight": 0.0},
     },

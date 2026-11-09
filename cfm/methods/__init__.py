@@ -120,6 +120,15 @@ PIGDM = Method(
     defaults={"guidance_scale": 1.0, "eps_reg": 1e-4},
 )
 
+OPC = Method(
+    name="opc",
+    label="OPC",
+    generate=pigdm.generate_opc,
+    supports=frozenset({EQUALITY}),
+    # The variance table is per checkpoint; problems supply its path.
+    defaults={"guidance_scale": 1.0, "eps_reg": 1e-4},
+)
+
 DPS = Method(
     name="dps",
     label="DPS",
@@ -145,12 +154,14 @@ CBF = Method(
 
 METHODS: Dict[str, Method] = {
     m.name: m
-    for m in (LDF, PENALTY, TIME_VARYING_PENALTY, PCFM, PIGDM, DPS, CBF)
+    for m in (LDF, PENALTY, TIME_VARYING_PENALTY, PCFM, PIGDM, OPC, DPS,
+              CBF)
 }
 
 # Methods that take `dt`; PCFM takes `num_steps` instead.
 USES_DT = frozenset({
-    "ldf", "penalty", "time_varying_penalty", "pigdm", "dps", "cbf",
+    "ldf", "penalty", "time_varying_penalty", "pigdm", "opc", "dps",
+    "cbf",
 })
 
 
@@ -171,6 +182,6 @@ def supporting(constraint: Constraint):
 
 
 __all__ = [
-    "METHODS", "Method", "LDF", "PENALTY", "PCFM", "PIGDM", "DPS", "CBF",
+    "METHODS", "Method", "LDF", "PENALTY", "PCFM", "PIGDM", "OPC", "DPS", "CBF",
     "TIME_VARYING_PENALTY", "USES_DT", "get", "supporting",
 ]

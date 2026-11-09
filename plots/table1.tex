@@ -1,22 +1,23 @@
-% INCOMPLETE: 17 cases pending; see plots/data/table1.json.
+% INCOMPLETE: 18 cases pending; see plots/data/table1.json.
 % Local timings; see plots/data/table1.json for provenance.
-\begin{tabular}{lcccccccccccccccc}
+\begin{tabular}{lcccccccccccccccccc}
 \toprule
 & \multicolumn{2}{c}{Penalty only}
 & \multicolumn{2}{c}{Time-varying penalty}
 & \multicolumn{2}{c}{CBF~\cite{safeflow2025}}
 & \multicolumn{2}{c}{PCFM~\cite{utkarsh2025pcfm}}
 & \multicolumn{2}{c}{$\Pi$GDM~\cite{pokle2024training}}
+& \multicolumn{2}{c}{OPC~\cite{peng2024improving}}
 & \multicolumn{2}{c}{DPS~\cite{chung2023diffusion}}
 & \multicolumn{2}{c}{LDF (no proj.)}
 & \multicolumn{2}{c}{LDF + proj.} \\
-\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}\cmidrule(lr){10-11}\cmidrule(lr){12-13}\cmidrule(lr){14-15}\cmidrule(lr){16-17}
-Problem & Time & Viol. & Time & Viol. & Time & Viol. & Time & Viol. & Time & Viol. & Time & Viol. & Time & Viol. & Time & Viol. \\
+\cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}\cmidrule(lr){10-11}\cmidrule(lr){12-13}\cmidrule(lr){14-15}\cmidrule(lr){16-17}\cmidrule(lr){18-19}
+Problem & Time & Viol. & Time & Viol. & Time & Viol. & Time & Viol. & Time & Viol. & Time & Viol. & Time & Viol. & Time & Viol. & Time & Viol. \\
 \midrule
-Star (eq.) & \textbf{0.3} & \sci{3.6}{-2} & 0.3 & \textit{failed} & --- & --- & 1.7 & \scib{4.8}{-8} & 0.5 & \sci{2.9}{-2} & 0.5 & \sci{5.8}{-2} & \textbf{0.3} & \sci{2.6}{-3} & \textbf{0.3} & \scib{6.0}{-8} \\
+Star (eq.) & \textbf{0.3} & \sci{3.6}{-2} & 0.3 & \textit{failed} & --- & --- & 1.7 & \scib{4.8}{-8} & 0.5 & \sci{2.9}{-2} & 0.7 & \sci{2.2}{-2} & 0.5 & \sci{5.8}{-2} & \textbf{0.3} & \sci{2.6}{-3} & \textbf{0.3} & \scib{6.0}{-8} \\
 \midrule
-Star (ineq.) & \textbf{0.3} & \sci{2.2}{-2} & \textbf{0.3} & \sci{4.7}{-3} & 3.5 & \textbf{0} & --- & --- & --- & --- & --- & --- & \textbf{0.3} & \sci{9.3}{-3} & \textbf{0.3} & \textbf{0} \\
-Obstacles (2) & \textbf{6.4} & \sci{1.0}{-3} & \textbf{5.6} & \sci{1.6}{-3} & 225.3 & \textbf{0} & --- & --- & --- & --- & --- & --- & \textbf{6.1} & \sci{4.6}{-5} & 7.1 & \textbf{0} \\
-Obstacles (6) & 8.9 & \sci{5.9}{-3} & \textbf{6.3} & \sci{1.4}{-2} & 769.0 & \textbf{0} & --- & --- & --- & --- & --- & --- & \textbf{7.2} & \sci{1.9}{-4} & 13.4 & \sci{4.1}{-5} \\
+Star (ineq.) & \textbf{0.3} & \sci{2.2}{-2} & \textbf{0.3} & \sci{4.7}{-3} & 3.5 & \textbf{0} & --- & --- & --- & --- & --- & --- & --- & --- & \textbf{0.3} & \sci{9.3}{-3} & \textbf{0.3} & \textbf{0} \\
+Obstacles (2) & \textbf{6.4} & \sci{1.0}{-3} & \textbf{5.6} & \sci{1.6}{-3} & 225.3 & \textbf{0} & --- & --- & --- & --- & --- & --- & --- & --- & \textbf{6.1} & \sci{4.6}{-5} & 7.1 & \textbf{0} \\
+Obstacles (6) & 8.9 & \sci{5.9}{-3} & \textbf{6.3} & \sci{1.4}{-2} & 769.0 & \textbf{0} & --- & --- & --- & --- & --- & --- & --- & --- & \textbf{7.2} & \sci{1.9}{-4} & 13.4 & \sci{4.1}{-5} \\
 \bottomrule
 \end{tabular}

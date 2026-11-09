@@ -248,10 +248,10 @@ def test_latex_table_pivots_methods_into_column_pairs():
     rows = [line for line in lines if line.startswith("Star")]
     assert rows == [
         r"Star & --- & --- & --- & --- & --- & --- & 29.6 "
-        r"& \scib{4.5}{-8} & --- & --- & --- & --- "
+        r"& \scib{4.5}{-8} & --- & --- & --- & --- & --- & --- "
         r"& \textbf{7.7} & \sci{2.6}{-3} & --- & --- \\",
         r"Star (ineq.) & --- & --- & --- & --- & 318.0 & \textbf{0}~$\dagger$ "
-        r"& --- & --- & --- & --- & --- & --- & --- & --- "
+        r"& --- & --- & --- & --- & --- & --- & --- & --- & --- & --- "
         r"& \textbf{7.9} & \textbf{0} \\",
     ]
     assert lines.index(rows[1]) == lines.index(rows[0]) + 2

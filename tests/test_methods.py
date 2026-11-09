@@ -28,6 +28,9 @@ def run(method, model, normalizer, constraint, **overrides):
         cfg.setdefault("num_steps", int(1 / DT))
     if method.name in ("ldf", "penalty"):
         cfg.setdefault("penalty_weight", PENALTY_WEIGHT)
+    if method.name == "opc":
+        cfg.setdefault("posterior_variance",
+                       (jnp.array([0., 1.]), jnp.array([1., 0.])))
     if method.name == "time_varying_penalty":
         cfg.setdefault("penalty_weight", PENALTY_WEIGHT)
         cfg.setdefault("solver", diffrax.Dopri5())

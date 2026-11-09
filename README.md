@@ -61,8 +61,12 @@ Methods are registered in `cfm/methods/__init__.py` and problems in
 | `time_varying_penalty` | Quadratic penalty scaled by `1/(1-t)^2` | equality, inequality |
 | `pcfm` | [Physics-constrained flow matching](https://arxiv.org/abs/2506.04171) | equality |
 | `pigdm` | [Pseudoinverse guidance](https://arxiv.org/abs/2310.04432) | equality |
+| `opc` | ΠGDM with [estimated posterior covariance](https://arxiv.org/abs/2402.02149) | equality |
 | `dps` | [Diffusion posterior sampling](https://arxiv.org/abs/2209.14687) | equality |
 | `cbf` | [SafeFlow](https://arxiv.org/abs/2504.08661) control barrier function filter | inequality |
+
+`opc` reads a per-checkpoint variance table. After training, build it with
+`uv run -m experiments.posterior_variance --problem <name>`.
 
 ## Examples
 
