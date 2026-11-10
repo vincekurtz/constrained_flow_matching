@@ -1,13 +1,26 @@
 % Local timings; see plots/data/table1.json for provenance.
+\begin{table*}[t]
+\centering
+\resizebox{\textwidth}{!}{%
 \begin{tabular}{lcccccccccccccccccc}
 \toprule
 & \multicolumn{2}{c}{Penalty only}
 & \multicolumn{2}{c}{Time-varying penalty}
-& \multicolumn{2}{c}{CBF~\cite{safeflow2025}}
-& \multicolumn{2}{c}{PCFM~\cite{utkarsh2025pcfm}}
-& \multicolumn{2}{c}{$\Pi$GDM~\cite{pokle2024training}}
-& \multicolumn{2}{c}{OPC~\cite{peng2024improving}}
-& \multicolumn{2}{c}{DPS~\cite{chung2023diffusion}}
+& \multicolumn{2}{c}{CBF
+% ~\citep{safeflow2025}
+}
+& \multicolumn{2}{c}{PCFM
+% ~\citep{utkarsh2025pcfm}
+}
+& \multicolumn{2}{c}{$\Pi$GDM
+% ~\citep{pokle2024training}
+}
+& \multicolumn{2}{c}{OPC
+% ~\citep{peng2024improving}
+}
+& \multicolumn{2}{c}{DPS
+% ~\citep{chung2023dps}
+}
 & \multicolumn{2}{c}{LDF (no proj.)}
 & \multicolumn{2}{c}{LDF + proj.} \\
 \cmidrule(lr){2-3}\cmidrule(lr){4-5}\cmidrule(lr){6-7}\cmidrule(lr){8-9}\cmidrule(lr){10-11}\cmidrule(lr){12-13}\cmidrule(lr){14-15}\cmidrule(lr){16-17}\cmidrule(lr){18-19}
@@ -23,3 +36,14 @@ Walker2D & \textbf{82.3} & \sci{7.3}{-3} & \textbf{80.7} & \sci{9.1}{-2} & 6495.
 Hopper & \textbf{81.3} & \sci{5.5}{-3} & \textbf{79.6} & \sci{2.1}{-1} & 3648.5 & \textbf{0} & --- & --- & --- & --- & --- & --- & --- & --- & \textbf{81.4} & \sci{7.1}{-4} & \textbf{81.4} & \scib{1.2}{-8} \\
 \bottomrule
 \end{tabular}
+}
+\caption{Mean per-sample generation time (ms) and constraint violation across 20 samples.
+Violation is $\norm{g(x_1)}$ for equality-constrained problems (top) and
+$\norm{\relu(h(x_1))}$ for inequality-constrained problems (bottom).
+Bold times are within 20\% of the lowest time in that row; bold violations are below $10^{-6}$
+(near machine precision for single-precision float).
+$^\dagger$At least one NaN error produced during generation; average shown is across non-NaN samples.
+\textit{failed}: every sample produced a NaN error; such methods are excluded from the bold-time comparison.}
+\vspace{-1.05em}
+\label{tab:generation_times}
+\end{table*}

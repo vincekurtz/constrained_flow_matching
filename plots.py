@@ -1040,10 +1040,19 @@ def plot_obstacle_comparison(
 POSE_PIXELS = (340, 460)
 POSE_EXTENT = 1.85
 POSE_CAMERA_Z = 0.83
+# v_z arrow length in the standalone figures, as a fraction of panel height.
+POSE_VZ_LENGTH = 0.26
 
 # Distinct markers so the clouds survive greyscale printing.
 TRAINING_STYLE = dict(marker="o", c="0.55", alpha=0.45, lw=0)
 GENERATED_STYLE = dict(marker="^", c="C0", alpha=0.5, lw=0)
+# Marker areas relative to ``point_size`` in the locomotion phase panels.
+# The standalone figures draw generated samples larger; their legends keep
+# the compact handles.
+TRAINING_SIZE = 1.6
+GENERATED_SIZE = 1.35
+STANDALONE_GENERATED_SIZE = 2.9
+LEGEND_MARKERSCALE = 2.5
 
 
 def _locomotion_samples(env, height_limit, phi, num_samples, seed, dt):
@@ -1101,7 +1110,7 @@ def _pose_frame(renderer, spec, reference, num_windows=64):
 
 
 def _draw_pose_panel(ax, renderer, frame, torso_z, label, fontsize=13,
-                     vz_length=0.11):
+                     vz_length=None):
     """The robot with ``z`` and ``v_z`` marked on it.
 
     ``vz_length`` is the ``v_z`` arrow length as a fraction of panel height.
@@ -1129,6 +1138,8 @@ def _draw_pose_panel(ax, renderer, frame, torso_z, label, fontsize=13,
             color="0.25", lw=0.8, ls=":")
     ax.plot(torso_col, torso_row, "o", ms=6, mfc="white", mec="0.25",
             mew=1.2, zorder=3)
+    if vz_length is None:
+        vz_length = POSE_VZ_LENGTH
     tip = torso_row - vz_length * renderer.height
     ax.annotate(
         "", xy=(torso_col, tip), xytext=(torso_col, torso_row),
@@ -1145,7 +1156,8 @@ def _draw_pose_panel(ax, renderer, frame, torso_z, label, fontsize=13,
         ax.set_title(label, fontsize=15)
 
 
-def _draw_phase_panel(ax, spec, data, point_size, legend=True):
+def _draw_phase_panel(ax, spec, data, point_size, legend=True,
+                      generated_size=GENERATED_SIZE):
     """The (z, v_z) cloud, training behind and constrained samples on top."""
     from problems.locomotion import PLOT_WINDOWS
 
@@ -1157,10 +1169,10 @@ def _draw_phase_panel(ax, spec, data, point_size, legend=True):
     z_gen = generated[..., spec.z_index].ravel()
     vz_gen = generated[..., spec.vz_index].ravel()
 
-    ax.scatter(z_ref, vz_ref, s=point_size * 1.6,
+    ax.scatter(z_ref, vz_ref, s=point_size * TRAINING_SIZE,
                label="training data (unconstrained)", **TRAINING_STYLE)
-    ax.scatter(z_gen, vz_gen, s=point_size * 1.35, label="generated, LDF",
-               **GENERATED_STYLE)
+    ax.scatter(z_gen, vz_gen, s=point_size * generated_size,
+               label="generated, LDF", **GENERATED_STYLE)
 
     ax.set_xlim(
         min(z_ref.min(), z_gen.min()) - 0.03,
@@ -1184,11 +1196,14 @@ def _draw_phase_panel(ax, spec, data, point_size, legend=True):
     ax.grid(alpha=0.3)
     if not legend:
         return
-    ax.legend(
+    handles = ax.legend(
         loc="lower left", bbox_to_anchor=(0.0, 1.01, 1.0, 0.1), mode="expand",
-        ncols=3, fontsize=11, frameon=False, markerscale=2.5,
+        ncols=3, fontsize=11, frameon=False, markerscale=LEGEND_MARKERSCALE,
         borderaxespad=0.0,
-    )
+    ).legend_handles
+    # Legend markers do not grow with the scatter markers.
+    for handle, size in zip(handles, (TRAINING_SIZE, GENERATED_SIZE)):
+        handle.set_sizes([point_size * size * LEGEND_MARKERSCALE ** 2])
 
 
 def plot_locomotion_phase(
@@ -1234,7 +1249,8 @@ def plot_locomotion_phase(
             gridspec_kw={"width_ratios": (1.0, 2.1)},
         )
         _draw_pose_panel(axes[0], renderer, frame, torso_z, spec.label)
-        _draw_phase_panel(axes[1], spec, data, point_size)
+        _draw_phase_panel(axes[1], spec, data, point_size,
+                          generated_size=STANDALONE_GENERATED_SIZE)
         fig.tight_layout()
         out = FIG_DIR / f"locomotion_{env}.png"
         fig.savefig(out, dpi=200)

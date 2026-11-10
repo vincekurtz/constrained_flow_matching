@@ -64,9 +64,12 @@ def export_table(*, run=False, available_only=False, force=False):
     note = (f"% INCOMPLETE: {len(pending)} cases pending; "
             "see plots/data/table1.json.\n"
             if pending else "")
+    num_samples = sorted({r["num_samples"] for r in records})
+    if len(num_samples) != 1:
+        raise ValueError(f"mixed sample counts in Table 1: {num_samples}")
     Path("plots/table1.tex").write_text(
         note + "% Local timings; see plots/data/table1.json for provenance.\n"
-        + sweep.render_latex_table(records) + "\n"
+        + sweep.render_latex_float(records, num_samples[0]) + "\n"
     )
     with Path("plots/table1.csv").open("w", newline="") as f:
         writer = csv.writer(f)

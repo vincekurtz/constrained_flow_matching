@@ -349,17 +349,19 @@ def render_table(records, fmt: str = "markdown") -> str:
     return "\n".join(lines)
 
 
-# (row name, header) for the LaTeX columns. Unlisted rows are appended.
+# (variant, header, citation key) for the LaTeX columns; unlisted variants
+# are appended. The paper keeps the citations as
+# LaTeX comments so the headers stay short.
 LATEX_COLUMNS = [
-    ("penalty", "Penalty only"),
-    ("time_varying_penalty", "Time-varying penalty"),
-    ("cbf", r"CBF~\cite{safeflow2025}"),
-    ("pcfm", r"PCFM~\cite{utkarsh2025pcfm}"),
-    ("pigdm", r"$\Pi$GDM~\cite{pokle2024training}"),
-    ("opc", r"OPC~\cite{peng2024improving}"),
-    ("dps", r"DPS~\cite{chung2023diffusion}"),
-    ("ldf", "LDF (no proj.)"),
-    ("ldf_projected", "LDF + proj."),
+    ("penalty", "Penalty only", None),
+    ("time_varying_penalty", "Time-varying penalty", None),
+    ("cbf", "CBF", "safeflow2025"),
+    ("pcfm", "PCFM", "utkarsh2025pcfm"),
+    ("pigdm", r"$\Pi$GDM", "pokle2024training"),
+    ("opc", "OPC", "peng2024improving"),
+    ("dps", "DPS", "chung2023dps"),
+    ("ldf", "LDF (no proj.)", None),
+    ("ldf_projected", "LDF + proj.", None),
 ]
 
 # Bold times are within this factor of the fastest in their row; bold
@@ -413,11 +415,11 @@ def render_latex_table(records) -> str:
         cells[row][column] = r
 
     columns = list(LATEX_COLUMNS)
-    known = {name for name, _ in columns}
+    known = {name for name, _, _ in columns}
     for per_row in cells.values():
         for name, r in per_row.items():
             if name not in known:
-                columns.append((name, r["method_label"]))
+                columns.append((name, r["method_label"], None))
                 known.add(name)
 
     order = list(problems.all_problems())
@@ -432,9 +434,13 @@ def render_latex_table(records) -> str:
                 "no Steps column, so keep one resolution per scenario"
             )
 
-    groups = "\n".join(
-        f"& \\multicolumn{{2}}{{c}}{{{header}}}" for _, header in columns
-    )
+    def group(header, cite):
+        if cite is None:
+            return f"& \\multicolumn{{2}}{{c}}{{{header}}}"
+        return (f"& \\multicolumn{{2}}{{c}}{{{header}\n"
+                f"% ~\\citep{{{cite}}}\n}}")
+
+    groups = "\n".join(group(header, cite) for _, header, cite in columns)
     rules = "".join(
         f"\\cmidrule(lr){{{2 + 2 * i}-{3 + 2 * i}}}"
         for i in range(len(columns))
@@ -457,7 +463,7 @@ def render_latex_table(records) -> str:
              if math.isfinite(r["mean_violation"])), default=math.inf,
         )
         out = [row[2]]
-        for name, _ in columns:
+        for name, _, _ in columns:
             r = per_row.get(name)
             if r is None:
                 out += ["---", "---"]
@@ -473,6 +479,47 @@ def render_latex_table(records) -> str:
 
     lines += [r"\bottomrule", r"\end{tabular}"]
     return "\n".join(lines)
+
+
+# The paper's Table 1 caption, extended for the added baselines.
+LATEX_CAPTION = "\n".join([
+    "Mean per-sample generation time (ms) and constraint violation across "
+    "{num_samples} samples.",
+    r"Violation is $\norm{{g(x_1)}}$ for equality-constrained problems "
+    "(top) and",
+    r"$\norm{{\relu(h(x_1))}}$ for inequality-constrained problems (bottom).",
+    r"Bold times are within {time_percent}\% of the lowest time in that "
+    r"row; bold violations are below $10^{{{threshold_exponent}}}$",
+    "(near machine precision for single-precision float).",
+    r"$^\dagger$At least one NaN error produced during generation; "
+    "average shown is across non-NaN samples.",
+    r"\textit{{failed}}: every sample produced a NaN error; such methods "
+    "are excluded from the bold-time comparison.",
+])
+
+
+def render_latex_float(records, num_samples: int) -> str:
+    r"""Wrap :func:`render_latex_table` in the paper's ``table*`` float.
+
+    The output pastes into the paper as is; it uses the paper's ``\sci``,
+    ``\scib``, ``\norm`` and ``\relu`` macros and ``booktabs``.
+    """
+    caption = LATEX_CAPTION.format(
+        num_samples=num_samples,
+        time_percent=round(100 * (LATEX_TIME_FACTOR - 1)),
+        threshold_exponent=round(math.log10(LATEX_VIOLATION_THRESHOLD)),
+    )
+    return "\n".join([
+        r"\begin{table*}[t]",
+        r"\centering",
+        r"\resizebox{\textwidth}{!}{%",
+        render_latex_table(records),
+        "}",
+        rf"\caption{{{caption}}}",
+        r"\vspace{-1.05em}",
+        r"\label{tab:generation_times}",
+        r"\end{table*}",
+    ])
 
 
 def _ran_the_baseline_scenario(record, want) -> bool:

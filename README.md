@@ -283,6 +283,9 @@ PNG and vector PDF outputs are in `plots/figures/time_varying_penalty_*`.
 
 `uv run -m experiments.table1 --run` runs the configured cases and exports
 `plots/table1.tex`, `plots/table1.csv`, and `plots/data/table1.json`.
+`plots/table1.tex` is the paper's complete `table*` float (caption and
+label included) and uses the paper's `\sci`, `\scib`, `\norm`, and `\relu`
+macros, so it can replace the table in the paper source directly.
 Use `--available-only` to explicitly allow missing checkpoints, and
 `--force` to refresh timings. The checked-in export covers every case,
 timed on one RTX 5090 GPU; the device and checkpoint hash of each case are

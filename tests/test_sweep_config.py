@@ -1,6 +1,7 @@
 """Sweep config expansion, baseline comparison, and LaTeX table rendering."""
 
 import json
+import re
 
 import pytest
 
@@ -268,3 +269,23 @@ def test_latex_table_refuses_two_results_for_one_cell():
     records = [_table_record("ldf", 1.0, 1e-2), _table_record("ldf", 2.0, 1e-2)]
     with pytest.raises(ValueError, match="stale"):
         sweep.render_latex_table(records)
+
+
+def test_latex_float_matches_the_paper_layout():
+    """The export pastes into the paper: same float, macros, and caption."""
+    records = [_table_record("ldf", 7.7, 2.6e-3),
+               _table_record("pcfm", 29.6, 4.5e-8)]
+    text = sweep.render_latex_float(records, num_samples=20)
+    lines = text.splitlines()
+    assert lines[:3] == [r"\begin{table*}[t]", r"\centering",
+                         r"\resizebox{\textwidth}{!}{%"]
+    assert lines[-3:] == [r"\vspace{-1.05em}",
+                          r"\label{tab:generation_times}", r"\end{table*}"]
+    assert "across 20 samples" in text
+    assert r"within 20\% of the lowest" in text
+    assert r"below $10^{-6}$" in text
+    # Citations are commented out, as in the paper's header row.
+    assert "& \\multicolumn{2}{c}{PCFM\n% ~\\citep{utkarsh2025pcfm}\n}" in text
+    assert r"\cite{" not in text.replace(r"% ~\citep{", "")
+    uncommented = re.sub(r"(?<!\\)%.*", "", text)
+    assert uncommented.count("{") == uncommented.count("}")
