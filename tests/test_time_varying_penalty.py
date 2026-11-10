@@ -88,11 +88,19 @@ def test_singular_or_invalid_endpoint_is_rejected(identity_normalizer, t1):
 
 def test_table1_compares_weights_and_keeps_failures():
     cases = sweep.build_cases(sweep.load_config("experiments/table1.toml"))
-    new = [c for c in cases if c.method == "time_varying_penalty"]
-    assert len(new) == 7
-    for case in new:
-        old = next(c for c in cases if c.method == "penalty"
-                   and c.problem_label == case.problem_label)
-        assert case.gains["penalty_weight"] == old.gains["penalty_weight"]
-        assert case.gains["throw"] is False
-        assert "num_projection_iters" not in case.gains
+    for variant, base, projected in [
+        ("time_varying_penalty", "penalty", False),
+        ("time_varying_penalty_projected", "penalty_projected", True),
+    ]:
+        new = [c for c in cases if c.variant == variant]
+        assert len(new) == 7
+        for case in new:
+            old = next(c for c in cases if c.variant == base
+                       and c.problem_label == case.problem_label)
+            assert (case.gains["penalty_weight"]
+                    == old.gains["penalty_weight"])
+            assert case.gains["throw"] is False
+            if projected:
+                assert case.gains["num_projection_iters"] == 2
+            else:
+                assert "num_projection_iters" not in case.gains

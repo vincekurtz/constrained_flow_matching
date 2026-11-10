@@ -247,13 +247,15 @@ def test_latex_table_pivots_methods_into_column_pairs():
     ]
     lines = sweep.render_latex_table(records).splitlines()
     rows = [line for line in lines if line.startswith("Star")]
+    def empty(n):
+        """``n`` blank Time/Viol. pairs."""
+        return " & ".join(["---"] * 2 * n)
+
     assert rows == [
-        r"Star & --- & --- & --- & --- & --- & --- & 29.6 "
-        r"& \scib{4.5}{-8} & --- & --- & --- & --- & --- & --- "
+        rf"Star & {empty(5)} & 29.6 & \scib{{4.5}}{{-8}} & {empty(6)} "
         r"& \textbf{7.7} & \sci{2.6}{-3} & --- & --- \\",
-        r"Star (ineq.) & --- & --- & --- & --- & 318.0 & \textbf{0}~$\dagger$ "
-        r"& --- & --- & --- & --- & --- & --- & --- & --- & --- & --- "
-        r"& \textbf{7.9} & \textbf{0} \\",
+        rf"Star (ineq.) & {empty(4)} & 318.0 & \textbf{{0}}~$\dagger$ "
+        rf"& {empty(7)} & --- & --- & \textbf{{7.9}} & \textbf{{0}} \\",
     ]
     assert lines.index(rows[1]) == lines.index(rows[0]) + 2
 

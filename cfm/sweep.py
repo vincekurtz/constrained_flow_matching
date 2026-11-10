@@ -354,12 +354,17 @@ def render_table(records, fmt: str = "markdown") -> str:
 # LaTeX comments so the headers stay short.
 LATEX_COLUMNS = [
     ("penalty", "Penalty only", None),
+    ("penalty_projected", "Penalty + proj.", None),
     ("time_varying_penalty", "Time-varying penalty", None),
+    ("time_varying_penalty_projected", "Time-varying penalty + proj.", None),
     ("cbf", "CBF", "safeflow2025"),
     ("pcfm", "PCFM", "utkarsh2025pcfm"),
     ("pigdm", r"$\Pi$GDM", "pokle2024training"),
+    ("pigdm_projected", r"$\Pi$GDM + proj.", None),
     ("opc", "OPC", "peng2024improving"),
+    ("opc_projected", "OPC + proj.", None),
     ("dps", "DPS", "chung2023dps"),
+    ("dps_projected", "DPS + proj.", None),
     ("ldf", "LDF (no proj.)", None),
     ("ldf_projected", "LDF + proj.", None),
 ]

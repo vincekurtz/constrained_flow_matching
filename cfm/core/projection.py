@@ -8,6 +8,9 @@ from typing import Callable
 import jax
 import jax.numpy as jnp
 
+from cfm.core.constraints import EQUALITY
+from cfm.core.solve import wrap_constraint
+
 
 def gauss_newton_step(
     residual_fn: Callable[[jax.Array], jax.Array],
@@ -71,3 +74,24 @@ def project_batch(
         )
     )(x)
     return projected.reshape(x.shape)
+
+
+def project_samples(samples, normalizer, constraint, *, num_iters: int):
+    """Apply LDF's final projection to another method's samples.
+
+    Projects in normalized coordinates, onto ``g(x) = 0`` for equalities
+    and the active rows of ``h(x) <= 0`` for inequalities, and replaces
+    the last saved trajectory state, as ``ldf.generate`` does.
+    """
+    if num_iters == 0:
+        return samples
+    x = normalizer.normalize(samples.x)
+    residual = wrap_constraint(constraint.fn, normalizer, x.shape[1:])
+    x = normalizer.unnormalize(project_batch(
+        residual, x, num_iters=num_iters,
+        active_only=constraint.kind != EQUALITY,
+    ))
+    xs = samples.xs
+    if xs is not None:
+        xs = xs.at[-1].set(x)
+    return samples._replace(x=x, xs=xs)

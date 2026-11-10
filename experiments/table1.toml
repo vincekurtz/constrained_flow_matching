@@ -37,13 +37,49 @@ method = "time_varying_penalty"
 label = "Time-varying penalty"
 gains = { throw = false }
 
+# Baselines followed by LDF's final projection: the same 2 Gauss-Newton
+# steps in normalized coordinates, timed as part of generation. PCFM and
+# CBF already end with their own 20-step projections, so their rows are
+# unchanged.
+[[variants]]
+name = "penalty_projected"
+method = "penalty"
+label = "Penalty + projection"
+gains = { num_projection_iters = 2 }
+
+[[variants]]
+name = "time_varying_penalty_projected"
+method = "time_varying_penalty"
+label = "Time-varying penalty + projection"
+gains = { throw = false, num_projection_iters = 2 }
+
+[[variants]]
+name = "pigdm_projected"
+method = "pigdm"
+label = "PiGDM + projection"
+gains = { num_projection_iters = 2 }
+
+[[variants]]
+name = "opc_projected"
+method = "opc"
+label = "OPC + projection"
+gains = { num_projection_iters = 2 }
+
+[[variants]]
+name = "dps_projected"
+method = "dps"
+label = "DPS + projection"
+gains = { num_projection_iters = 2 }
+
 # --- 2-D and MNIST, dt = 0.01 ---
 
 [[block]]
 problems = ["star", "mnist"]
 problem_label = { star = "Star (eq.)" }
-methods = ["pigdm", "opc", "dps", "pcfm", "penalty",
-           "time_varying_penalty", "ldf", "ldf_projected"]
+methods = ["pigdm", "pigdm_projected", "opc", "opc_projected", "dps",
+           "dps_projected", "pcfm", "penalty", "penalty_projected",
+           "time_varying_penalty", "time_varying_penalty_projected",
+           "ldf", "ldf_projected"]
 steps = [100]
 
 # Shared by both LDF rows and the penalty ablation.
@@ -80,7 +116,8 @@ step_size = 1.0
 [[block]]
 problems = ["star"]
 problem_label = "Star (ineq.)"
-methods = ["cbf", "penalty", "time_varying_penalty", "ldf", "ldf_projected"]
+methods = ["cbf", "penalty", "penalty_projected", "time_varying_penalty",
+           "time_varying_penalty_projected", "ldf", "ldf_projected"]
 steps = [100]
 
 [block.problem_options.star]
@@ -96,7 +133,8 @@ penalty_weight = 5.0
 [[block]]
 problems = ["obstacles"]
 problem_label = "Obstacles (2)"
-methods = ["cbf", "penalty", "time_varying_penalty", "ldf", "ldf_projected"]
+methods = ["cbf", "penalty", "penalty_projected", "time_varying_penalty",
+           "time_varying_penalty_projected", "ldf", "ldf_projected"]
 steps = [500]
 
 [block.problem_options.obstacles]
@@ -111,7 +149,8 @@ qp = "elastic"
 [[block]]
 problems = ["obstacles"]
 problem_label = "Obstacles (6)"
-methods = ["cbf", "penalty", "time_varying_penalty", "ldf", "ldf_projected"]
+methods = ["cbf", "penalty", "penalty_projected", "time_varying_penalty",
+           "time_varying_penalty_projected", "ldf", "ldf_projected"]
 steps = [500]
 
 [block.problem_options.obstacles]
@@ -127,7 +166,8 @@ qp = "elastic"
 [[block]]
 problems = ["walker2d", "hopper"]
 problem_label = { walker2d = "Walker2D", hopper = "Hopper" }
-methods = ["cbf", "penalty", "time_varying_penalty", "ldf", "ldf_projected"]
+methods = ["cbf", "penalty", "penalty_projected", "time_varying_penalty",
+           "time_varying_penalty_projected", "ldf", "ldf_projected"]
 steps = [100]
 
 # The exact QP fails part-way through a Hopper sweep.

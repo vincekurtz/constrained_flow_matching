@@ -65,6 +65,12 @@ Methods are registered in `cfm/methods/__init__.py` and problems in
 | `dps` | [Diffusion posterior sampling](https://arxiv.org/abs/2209.14687) | equality |
 | `cbf` | [SafeFlow](https://arxiv.org/abs/2504.08661) control barrier function filter | inequality |
 
+`--num-projection-iters` works with every method. LDF and `penalty` apply
+it themselves; the other methods have the same final Gauss-Newton
+projection applied to their samples, in normalized coordinates and
+included in the timing. Table 1 reports each baseline with and without
+it. PCFM and CBF already end with their own 20-step projections.
+
 `opc` reads a per-checkpoint variance table. After training, build it with
 `uv run -m experiments.posterior_variance --problem <name>`.
 

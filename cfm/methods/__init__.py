@@ -4,6 +4,7 @@ from dataclasses import dataclass, field
 from typing import Any, Callable, Dict, FrozenSet
 
 from cfm.core.constraints import EQUALITY, INEQUALITY, Constraint
+from cfm.core.projection import project_samples
 from cfm.core.solve import Samples
 from cfm.methods import cbf, dps, ldf, pcfm, pigdm, time_varying_penalty
 
@@ -21,6 +22,9 @@ class Method:
         supports: Constraint kinds this method can handle.
         defaults: Default hyperparameters.
         locked: Hyperparameters that config may not override.
+        native_projection: Whether ``generate`` takes
+            ``num_projection_iters`` itself. Otherwise :meth:`run` applies
+            LDF's final Gauss-Newton projection to the samples.
     """
 
     name: str
@@ -29,6 +33,7 @@ class Method:
     supports: FrozenSet[str]
     defaults: Dict[str, Any] = field(default_factory=dict)
     locked: Dict[str, Any] = field(default_factory=dict)
+    native_projection: bool = False
 
     def supports_constraint(self, constraint: Constraint) -> bool:
         return constraint.kind in self.supports
@@ -58,8 +63,13 @@ class Method:
                 f"method {self.name!r} does not support {constraint.kind} "
                 f"constraints (supports: {', '.join(sorted(self.supports))})"
             )
-        return self.generate(
-            model, normalizer, constraint, **self.config(**overrides)
+        cfg = self.config(**overrides)
+        if self.native_projection:
+            return self.generate(model, normalizer, constraint, **cfg)
+        num_projection_iters = cfg.pop("num_projection_iters", 0)
+        samples = self.generate(model, normalizer, constraint, **cfg)
+        return project_samples(
+            samples, normalizer, constraint, num_iters=num_projection_iters,
         )
 
 
@@ -77,6 +87,7 @@ LDF = Method(
     generate=ldf.generate,
     supports=BOTH,
     defaults=dict(_LDF_DEFAULTS),
+    native_projection=True,
 )
 
 # LDF with frozen (zero) multipliers, i.e. a pure quadratic penalty.
@@ -87,6 +98,7 @@ PENALTY = Method(
     supports=BOTH,
     defaults=dict(_LDF_DEFAULTS, rescale_factor=0.0, initial_dual_scale=None),
     locked={"rescale_factor": 0.0, "initial_dual_scale": None},
+    native_projection=True,
 )
 
 TIME_VARYING_PENALTY = Method(

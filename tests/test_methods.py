@@ -179,3 +179,30 @@ def test_generation_is_reproducible_from_a_seed(model, normalizer, circle):
 
     assert jnp.array_equal(a.x, b.x)
     assert not jnp.allclose(a.x, c.x)
+
+
+@pytest.mark.parametrize("name", ["pigdm", "dps", "time_varying_penalty"])
+def test_final_projection_applies_to_every_method(
+    name, model, normalizer, circle,
+):
+    """Without a built-in projection, run() projects the samples like LDF."""
+    method = methods.get(name)
+    assert not method.native_projection
+    plain = run(method, model, normalizer, circle)
+    projected = run(method, model, normalizer, circle, num_projection_iters=4)
+    before = jax.vmap(circle.violation)(plain.x)
+    after = jax.vmap(circle.violation)(projected.x)
+    assert float(after.max()) < 1e-5
+    assert float(after.mean()) < float(before.mean())
+    assert jnp.array_equal(projected.xs[-1], projected.x)
+    # The projection only touches the final state.
+    assert jnp.allclose(projected.xs[0], plain.xs[0])
+
+
+def test_zero_projection_iters_leaves_samples_unchanged(
+    model, normalizer, circle,
+):
+    method = methods.get("pigdm")
+    plain = run(method, model, normalizer, circle)
+    same = run(method, model, normalizer, circle, num_projection_iters=0)
+    assert jnp.array_equal(plain.x, same.x)
