@@ -108,6 +108,7 @@ PROBLEM = Problem(
         },
         "penalty": {"penalty_weight": 10.0, "num_projection_iters": 2},
         "pcfm": {"correction_weight": 0.0},
+        "dps": {"step_size": 1.0},
     },
     default_num_samples=25,
 )

@@ -284,10 +284,10 @@ PNG and vector PDF outputs are in `plots/figures/time_varying_penalty_*`.
 `uv run -m experiments.table1 --run` runs the configured cases and exports
 `plots/table1.tex`, `plots/table1.csv`, and `plots/data/table1.json`.
 Use `--available-only` to explicitly allow missing checkpoints, and
-`--force` to refresh timings. The checked-in export is incomplete: it
-contains CPU measurements on regenerated star and obstacle models;
-MNIST, Walker2D, and Hopper await their trained checkpoints. Pending cases
-are listed in the JSON, separately from numerical failures.
+`--force` to refresh timings. The checked-in export covers every case,
+timed on one RTX 5090 GPU; the device and checkpoint hash of each case are
+recorded in the JSON. Pending cases, if any, are listed there separately
+from numerical failures.
 
 ## Paper reproduction
 

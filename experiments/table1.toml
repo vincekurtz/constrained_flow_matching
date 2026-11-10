@@ -68,8 +68,12 @@ method = "dps"
 problem = "star"
 step_size = 0.03
 
-# TODO: MNIST uses the registry default zeta' = 0.1, untuned. Sweep it
-# once data/mnist_model.pkl exists.
+# MNIST, same protocol: coarse grid {0.01, ..., 50} on seed 0 (violation
+# falls until zeta' ~ 1, then grows), then {0.7, 1, 1.2, 1.5, 2} on seed 1.
+[[block.gains]]
+method = "dps"
+problem = "mnist"
+step_size = 1.0
 
 # --- Star with a right-half-plane inequality, dt = 0.01 ---
 
