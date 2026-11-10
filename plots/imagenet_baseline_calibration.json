@@ -1,0 +1,256 @@
+{
+  "selection_rule": "Minimum missing-region FID across all five cases",
+  "role": "Calibration only; the 256-case study is separate",
+  "selected": {
+    "dps": "dps_0p1",
+    "opc": "opc_0p002"
+  },
+  "trials": [
+    {
+      "name": "dps_0p1",
+      "method": "dps",
+      "step_size": 0.1,
+      "metrics": {
+        "method": "dps",
+        "planned": 5,
+        "successful": 5,
+        "paired_n": 5,
+        "fid_full": 90.85446565744758,
+        "paired_kid_full": 0.008989491290562012,
+        "fid_hole": 247.2929618988889,
+        "paired_kid_hole": 0.008961038740156769,
+        "observed_mae": 0.04195286372604049,
+        "observed_max_error": 0.6693228483200073,
+        "hole_rmse": 0.1410762631835183,
+        "out_of_range_fraction": 0.0009335835774739584,
+        "seconds_median": 57.44596391048981
+      }
+    },
+    {
+      "name": "dps_0p3",
+      "method": "dps",
+      "step_size": 0.3,
+      "metrics": {
+        "method": "dps",
+        "planned": 5,
+        "successful": 5,
+        "paired_n": 5,
+        "fid_full": 181.51272096418538,
+        "paired_kid_full": 0.003530653711461085,
+        "fid_hole": 248.07941139065827,
+        "paired_kid_hole": 0.015995484640669376,
+        "observed_mae": 0.038288576907828595,
+        "observed_max_error": 0.7410414218902588,
+        "hole_rmse": 0.15902559660711477,
+        "out_of_range_fraction": 0.004331207275390625,
+        "seconds_median": 52.822647831519134
+      }
+    },
+    {
+      "name": "dps_1",
+      "method": "dps",
+      "step_size": 1.0,
+      "metrics": {
+        "method": "dps",
+        "planned": 5,
+        "successful": 5,
+        "paired_n": 5,
+        "fid_full": 348.99555788511856,
+        "paired_kid_full": 0.11728124156081159,
+        "fid_hole": 427.7552512654701,
+        "paired_kid_hole": 0.1688497447857264,
+        "observed_mae": 0.04336213596505317,
+        "observed_max_error": 1.240674301981926,
+        "hole_rmse": 0.32302990737717063,
+        "out_of_range_fraction": 0.02962697347005208,
+        "seconds_median": 26.607559976982884
+      }
+    },
+    {
+      "name": "dps_3",
+      "method": "dps",
+      "step_size": 3.0,
+      "metrics": {
+        "method": "dps",
+        "planned": 5,
+        "successful": 5,
+        "paired_n": 5,
+        "fid_full": 506.9837140321514,
+        "paired_kid_full": 0.3839534512810962,
+        "fid_hole": 473.05007127588885,
+        "paired_kid_hole": 0.40125626787564617,
+        "observed_mae": 0.058602533223120055,
+        "observed_max_error": 1.950976938009262,
+        "hole_rmse": 0.4578497516359306,
+        "out_of_range_fraction": 0.04997049967447917,
+        "seconds_median": 57.48915893200319
+      }
+    },
+    {
+      "name": "dps_10",
+      "method": "dps",
+      "step_size": 10.0,
+      "metrics": {
+        "method": "dps",
+        "planned": 5,
+        "successful": 5,
+        "paired_n": 5,
+        "fid_full": 380.04768406998653,
+        "paired_kid_full": 0.26016690978968093,
+        "fid_hole": 425.4428202173426,
+        "paired_kid_hole": 0.3186956296083734,
+        "observed_mae": 0.035172908108381834,
+        "observed_max_error": 1.2520094215869904,
+        "hole_rmse": 0.5299881620307011,
+        "out_of_range_fraction": 0.05290145874023437,
+        "seconds_median": 57.4854137384973
+      }
+    },
+    {
+      "name": "opc_0p6",
+      "method": "opc",
+      "guidance_scale": 0.6,
+      "metrics": {
+        "method": "opc",
+        "planned": 5,
+        "successful": 5,
+        "paired_n": 5,
+        "fid_full": 528.9634464881284,
+        "paired_kid_full": 0.48030080995180635,
+        "fid_hole": 416.1422114015611,
+        "paired_kid_hole": 0.28482139799750783,
+        "observed_mae": 0.1178635124536723,
+        "observed_max_error": 2.9352145195007324,
+        "hole_rmse": 0.49999834275668187,
+        "out_of_range_fraction": 0.08521016438802083,
+        "seconds_median": 58.42424420648604
+      }
+    },
+    {
+      "name": "opc_0p2",
+      "method": "opc",
+      "guidance_scale": 0.2,
+      "metrics": {
+        "method": "opc",
+        "planned": 5,
+        "successful": 5,
+        "paired_n": 5,
+        "fid_full": 558.5496357286737,
+        "paired_kid_full": 0.5150208363814943,
+        "fid_hole": 441.375758046852,
+        "paired_kid_hole": 0.3721576249406063,
+        "observed_mae": 0.11696150137095325,
+        "observed_max_error": 2.706316217780113,
+        "hole_rmse": 0.4901372339224265,
+        "out_of_range_fraction": 0.062308502197265615,
+        "seconds_median": 58.47580397402635
+      }
+    },
+    {
+      "name": "opc_0p06",
+      "method": "opc",
+      "guidance_scale": 0.06,
+      "metrics": {
+        "method": "opc",
+        "planned": 5,
+        "successful": 5,
+        "paired_n": 5,
+        "fid_full": 525.1964457948516,
+        "paired_kid_full": 0.4353773439045872,
+        "fid_hole": 415.88709543523555,
+        "paired_kid_hole": 0.23501949253921542,
+        "observed_mae": 0.10202678447046791,
+        "observed_max_error": 1.6815188825130463,
+        "hole_rmse": 0.39271188515985866,
+        "out_of_range_fraction": 0.046258799235026044,
+        "seconds_median": 32.59159284699126
+      }
+    },
+    {
+      "name": "opc_0p02",
+      "method": "opc",
+      "guidance_scale": 0.02,
+      "metrics": {
+        "method": "opc",
+        "planned": 5,
+        "successful": 5,
+        "paired_n": 5,
+        "fid_full": 481.8077906374183,
+        "paired_kid_full": 0.25790333245546787,
+        "fid_hole": 428.8930553381812,
+        "paired_kid_hole": 0.1669112873237695,
+        "observed_mae": 0.06832052787517032,
+        "observed_max_error": 1.2831976413726807,
+        "hole_rmse": 0.3379523300660626,
+        "out_of_range_fraction": 0.04229329427083333,
+        "seconds_median": 58.55110175302252
+      }
+    },
+    {
+      "name": "opc_0p006",
+      "method": "opc",
+      "guidance_scale": 0.006,
+      "metrics": {
+        "method": "opc",
+        "planned": 5,
+        "successful": 5,
+        "paired_n": 5,
+        "fid_full": 274.25999426163844,
+        "paired_kid_full": 0.060497395388908415,
+        "fid_hole": 345.91992485768,
+        "paired_kid_hole": 0.04366890368825434,
+        "observed_mae": 0.05832073656110122,
+        "observed_max_error": 0.9791548252105713,
+        "hole_rmse": 0.26698035428577804,
+        "out_of_range_fraction": 0.020074462890625,
+        "seconds_median": 58.41946170851588
+      }
+    },
+    {
+      "name": "opc_0p002",
+      "method": "opc",
+      "guidance_scale": 0.002,
+      "metrics": {
+        "method": "opc",
+        "planned": 5,
+        "successful": 5,
+        "paired_n": 5,
+        "fid_full": 148.83823013219865,
+        "paired_kid_full": 0.01205349644006488,
+        "fid_hole": 271.46482475094166,
+        "paired_kid_hole": 0.011007498733988897,
+        "observed_mae": 0.0546918349867901,
+        "observed_max_error": 0.7590937614440918,
+        "hole_rmse": 0.14694519780146226,
+        "out_of_range_fraction": 0.0023312886555989587,
+        "seconds_median": 58.37880010850495
+      }
+    },
+    {
+      "name": "opc_0p0006",
+      "method": "opc",
+      "guidance_scale": 0.0006,
+      "metrics": {
+        "method": "opc",
+        "planned": 5,
+        "successful": 5,
+        "paired_n": 5,
+        "fid_full": 205.0908159298889,
+        "paired_kid_full": 0.026534378302202934,
+        "fid_hole": 289.6902671136849,
+        "paired_kid_hole": 0.016099060394345166,
+        "observed_mae": 0.07221657679066676,
+        "observed_max_error": 0.8095881640911102,
+        "hole_rmse": 0.14884532924835864,
+        "out_of_range_fraction": 0.0007715861002604167,
+        "seconds_median": 58.499114980513696
+      }
+    }
+  ],
+  "notes": [
+    "Same five cases, masks, and seeds as the PCFM calibration.",
+    "Both use 500 Midpoint steps (1000 network evaluations).",
+    "No calibration cases or completed candidates were dropped.",
+    "Runs overlapped other GPU jobs; runtimes are not comparable."
+  ]
+}

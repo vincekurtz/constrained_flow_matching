@@ -244,6 +244,43 @@ are `references`, `pcfm`, `pigdm`, `ldf`, and `evaluate`. The methods use
 fixed settings with different computational costs; this is not a matched
 compute or exhaustive hyperparameter comparison.
 
+#### DPS and OPC baselines
+
+DPS and OPC were added to the completed study without changing its plan.
+`--stage extend` records their settings in `extensions.json`; each new
+sample stores the hash of those settings, so existing samples stay valid.
+
+```bash
+# OPC's r_t^2 table, from 64 fresh unconstrained samples of the checkpoint
+uv run -m experiments.imagenet_posterior_variance
+# DPS step size and OPC guidance scale on the five calibration cases
+uv run --group evaluation -m experiments.imagenet_baseline_calibration --stage run
+S="uv run --group evaluation -m experiments.imagenet_inpainting_study \
+    --output-dir results/imagenet_study_256_selected"
+$S --stage extend
+$S --stage dps --batch-size 4
+$S --stage opc --batch-size 4
+$S --stage evaluate --report-dir plots/imagenet_study_256
+# paper figure and LaTeX table
+uv run -m experiments.imagenet_inpainting_paper
+```
+
+Both use 500 Midpoint steps (1000 network evaluations, as in DPS) and are
+calibrated on the five gallery cases by missing-region FID
+([summary](plots/imagenet_baseline_calibration.csv)). DPS uses
+`zeta' = 0.1`; larger steps added artifacts without fitting the observed
+pixels better. OPC's estimated `r_t^2` is 12-140x below PiGDM's Gaussian
+prior for this model, which makes the guidance very stiff: adaptive Tsit5
+exceeds PiGDM's 2000-step cap, and PiGDM's guidance scale 0.6 diverges with
+fixed steps. OPC therefore uses guidance scale 0.002 (grid 0.6 to 0.0006).
+Neither baseline closely matches the observed pixels at this budget.
+
+`experiments.imagenet_inpainting_paper` writes
+[`plots/figures/imagenet_inpainting_comparison.png`](plots/figures/imagenet_inpainting_comparison.png)
+(and `.pdf`), the first five planned cases without selection, and
+[`plots/imagenet_inpainting.tex`](plots/imagenet_inpainting.tex), a complete
+`table` float with FID and paired KID for the whole image and the hole.
+
 ## Benchmarks
 
 ```bash

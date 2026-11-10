@@ -172,3 +172,58 @@ def test_batching_keeps_independent_constraints_and_random_keys(
                               np.flatnonzero(masks[case["id"]])))
         np.testing.assert_allclose(image, expected, atol=1e-5)
     assert jobs[0][3] and jobs[1][3] and not jobs[2][3]
+
+
+def test_extensions_keep_plan_and_pin_settings(tmp_path, monkeypatch):
+    monkeypatch.setattr(study.imagenet, "IMAGE_SHAPE", (2, 2, 3))
+    plan = {"cases": [{"id": 1}], "settings": {"references": {}}}
+    gallery.write_json(tmp_path / "plan.json", plan)
+    assert study.study_methods(tmp_path, plan) == study.METHODS
+    settings = study.extension_settings()
+    assert settings["opc"]["posterior_variance"].endswith("imagenet.json")
+    assert settings["opc"]["guidance_scale"] == 0.002  # calibrated
+    study.extend(tmp_path, {"dps": settings["dps"]})
+    assert study.extend(tmp_path, {"dps": settings["dps"]})  # idempotent
+    with pytest.raises(ValueError, match="already registered"):
+        study.extend(tmp_path, {"dps": {**settings["dps"], "step_size": 9}})
+    assert study.study_methods(tmp_path, plan) == (*study.METHODS, "dps")
+
+    folder = tmp_path / "case_1"
+    folder.mkdir()
+    image = np.zeros((2, 2, 3), dtype=np.float32)
+    for stage, name in (("references", "reference"), ("dps", "dps")):
+        np.save(folder / f"{name}.npy", image)
+        gallery.write_json(folder / f"{name}.json", {
+            "plan_sha256": study.plan_hash(plan), "case_id": 1,
+            "stage": stage, "sample_sha256": gallery.digest(image),
+            "reference_sha256": gallery.digest(image),
+            "settings_sha256": study.plan_hash(settings["dps"]),
+        })
+    study.load_sample(tmp_path, plan, {"id": 1}, "dps")
+    path = tmp_path / study.EXTENSIONS
+    changed = json.loads(path.read_text())
+    changed["settings"]["dps"]["step_size"] = 9
+    gallery.write_json(path, changed)
+    with pytest.raises(ValueError, match="Settings changed"):
+        study.load_sample(tmp_path, plan, {"id": 1}, "dps")
+
+
+def test_paper_table_orders_methods_and_marks_best():
+    from experiments import imagenet_inpainting_paper as paper
+
+    def row(method, fid, successful=10):
+        return {"method": method, "planned": 10, "successful": successful,
+                "paired_n": 9, "fid_full": fid, "fid_hole": 2 * fid,
+                "paired_kid_full": fid / 1e3, "paired_kid_hole": fid / 1e3,
+                "observed_mae": 1e-9 if method == "pcfm" else 1e-3,
+                "seconds_median": 1.5}
+    rows = [row("ldf", 50.), row("dps", 70., successful=9),
+            row("pcfm", 80.), row("opc", 60.), row("pigdm", 60.)]
+    tex = paper.table({"rows": rows})
+    order = [tex.index(label) for label in
+             ("PCFM", r"$\Pi$GDM", "OPC", "DPS", "LDF (ours)")]
+    assert order == sorted(order)
+    assert r"LDF (ours) & \textbf{50.0} & \textbf{100.0}" in tex
+    assert r"\scib{1.0}{-9}" in tex and r"DPS$^\ddagger$" in tex
+    assert "on the 9 cases" in tex and "DPS (1)" in tex
+    assert tex.count(r"\\") == 7  # header rows plus one per method

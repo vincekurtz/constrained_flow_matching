@@ -11,7 +11,7 @@ from PIL import Image
 
 from experiments import imagenet_inpainting_gallery as gallery
 from experiments.imagenet_inpainting_study import (
-    METHODS, load_sample, plan_hash, sample_metrics,
+    load_sample, plan_hash, sample_metrics, study_methods,
 )
 
 
@@ -64,6 +64,10 @@ def paired_kid(x, y):
     return float((k.sum() - np.trace(k)) / (len(x) * (len(x) - 1)))
 
 
+LABELS = {"pcfm": "PCFM", "pigdm": "PiGDM", "opc": "OPC", "dps": "DPS",
+          "ldf": "LDF"}
+
+
 def png_array(image):
     return np.rint(np.clip(image, 0, 1) * 255).astype(np.uint8)
 
@@ -110,10 +114,12 @@ def extract_features(root, plan, cases, region, stage, model):
 
 
 def figure(root, plan, output):
+    names = study_methods(root, plan)
     cases = [c for c in plan["cases"]
              if c["id"] in plan["representative_ids"]]
-    fig, axes = plt.subplots(len(cases), 5, squeeze=False,
-                             figsize=(17.5, 3.6 * len(cases)))
+    fig, axes = plt.subplots(len(cases), 2 + len(names), squeeze=False,
+                             figsize=(3.5 * (2 + len(names)),
+                                      3.6 * len(cases)))
     for row, case in enumerate(cases):
         try:
             reference, _ = load_sample(root, plan, case, "references")
@@ -125,7 +131,7 @@ def figure(root, plan, output):
         observed = gallery.observed_mask(case)
         images = [reference, np.where(observed[..., None], reference, .5)]
         records = []
-        for method in METHODS:
+        for method in names:
             try:
                 image, record = load_sample(root, plan, case, method)
             except FileNotFoundError:
@@ -138,8 +144,8 @@ def figure(root, plan, output):
             ax.set_xticks([])
             ax.set_yticks([])
             if row == 0:
-                ax.set_title(("Reference", "Observed", "PCFM", "PiGDM",
-                              "LDF")[col], fontsize=16)
+                ax.set_title(("Reference", "Observed", *(
+                    LABELS[m] for m in names))[col], fontsize=16)
             if col >= 2:
                 record = records[col - 2]
                 ax.set_xlabel("FAILED / MISSING" if record is None else
@@ -158,9 +164,10 @@ def evaluate(root, report_dir):
     root, report_dir = Path(root), Path(report_dir)
     report_dir.mkdir(parents=True, exist_ok=True)
     plan = json.loads((root / "plan.json").read_text())
+    names = study_methods(root, plan)
     # Require every planned job to have either a valid output or a failure.
     records, successes = {}, {}
-    for stage in ("references", *METHODS):
+    for stage in ("references", *names):
         records[stage], successes[stage] = {}, set()
         for case in plan["cases"]:
             try:
@@ -195,12 +202,12 @@ def evaluate(root, report_dir):
         "clean", device=torch.device("cpu"), use_dataparallel=False,
     )
     rows = []
-    distributions = {m: {} for m in METHODS}
+    distributions = {m: {} for m in names}
     for region in ("full", "hole"):
         reference_features = extract_features(
             root, plan, cases, region, "references", model,
         )
-        for method in METHODS:
+        for method in names:
             features = extract_features(
                 root, plan, cases, region, method, model,
             )
@@ -210,7 +217,7 @@ def evaluate(root, report_dir):
             distributions[method][f"paired_kid_{region}"] = paired_kid(
                 reference_features, features,
             )
-    for method in METHODS:
+    for method in names:
         paired = [records[method][c["id"]] for c in cases]
         timings = [r["seconds"] for r in records[method].values()
                    if not r["includes_compilation"]]

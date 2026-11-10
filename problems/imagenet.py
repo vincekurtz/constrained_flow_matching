@@ -154,7 +154,8 @@ PROBLEM = Problem(
     retain_trajectory=False,
     unconstrained_gains={"dt": 0.002},
     method_constraint_options={
-        name: {"reduction": "norm"} for name in ("pigdm", "pcfm")
+        name: {"reduction": "norm"}
+        for name in ("pigdm", "pcfm", "opc", "dps")
     },
     method_gains={
         "pcfm": {
@@ -173,8 +174,25 @@ PROBLEM = Problem(
             "dt": 0.0005, "guidance_scale": 0.6, "eps_reg": 1e-8,
             "save_trajectory": False,
         },
+        # PiGDM with the variance table estimated from samples of this
+        # checkpoint (experiments/imagenet_posterior_variance.py). That r_t^2
+        # is far below PiGDM's prior, so the guidance is stiff: adaptive
+        # Tsit5 exceeds 2000 steps, and PiGDM's scale 0.6 diverges with
+        # fixed steps. Midpoint steps match DPS's 1000 evaluations; the
+        # scale is the best of {0.6, ..., 0.0006} on the five calibration
+        # cases (experiments/imagenet_baseline_calibration.py).
+        "opc": {
+            "dt": 0.002, "guidance_scale": 0.002, "eps_reg": 1e-8,
+            "save_trajectory": False,
+            "posterior_variance":
+                "experiments/posterior_variance/imagenet.json",
+        },
+        # 500 Midpoint steps: 1000 network evaluations, as in DPS. The step
+        # size is the best of {0.1, ..., 10} on the five calibration cases
+        # (experiments/imagenet_dps_calibration.py).
+        "dps": {"dt": 0.002, "step_size": 0.1, "save_trajectory": False},
     },
-    supported_methods=("ldf", "pigdm", "pcfm"),
+    supported_methods=("ldf", "pigdm", "pcfm", "opc", "dps"),
     options={
         "--reference": {"type": str, "default": None,
                         "help": "RGB reference image (center crop to 512px)."},

@@ -2,6 +2,11 @@
 
 Initialize once, then run references, pcfm, pigdm, ldf, and evaluate.
 Synthetic references are a model-consistency pilot, not a real-data benchmark.
+
+Baselines added after a study was run (DPS, OPC) are registered with
+``--stage extend``. Their settings live in ``extensions.json`` next to the
+frozen plan, so existing samples stay valid; each added sample records the
+hash of its own settings.
 """
 
 import argparse
@@ -26,7 +31,67 @@ from experiments.imagenet_native_tuning import SOLVERS
 from problems import imagenet
 
 METHODS = ("pcfm", "pigdm", "ldf")
+EXTRA_METHODS = ("dps", "opc")
 STAGES = ("references", *METHODS)
+EXTENSIONS = "extensions.json"
+
+
+def extension_settings(dps_overrides=None, opc_overrides=None):
+    """Settings for the added baselines, from the ImageNet problem gains.
+
+    OPC keeps PiGDM's guidance settings but integrates with fixed Midpoint
+    steps (see ``problems/imagenet.py``).
+    """
+    result = {name: getattr(methods, name.upper()).config(
+        **imagenet.PROBLEM.gains_for(name)) for name in EXTRA_METHODS}
+    for name, overrides in (("dps", dps_overrides), ("opc", opc_overrides)):
+        if overrides:
+            if set(overrides) - (set(result[name]) | {"solver", "rtol",
+                                                      "atol", "max_steps"}):
+                raise ValueError(f"Unsupported {name} study setting")
+            result[name].update(overrides)
+        result[name]["save_trajectory"] = False
+    return result
+
+
+def extend(root, settings):
+    """Register added baselines; refuse to change ones already registered."""
+    root = Path(root)
+    plan = json.loads((root / "plan.json").read_text())
+    path = root / EXTENSIONS
+    current = json.loads(path.read_text()) if path.exists() else {
+        "plan_sha256": plan_hash(plan), "settings": {}}
+    if current["plan_sha256"] != plan_hash(plan):
+        raise ValueError("Extensions belong to a different plan")
+    for name, cfg in settings.items():
+        if name not in EXTRA_METHODS:
+            raise ValueError(f"Unknown added baseline: {name}")
+        if name in current["settings"] and current["settings"][name] != cfg:
+            raise ValueError(f"{name} already registered with other settings")
+        current["settings"][name] = cfg
+    gallery.write_json(path, current)
+    return current
+
+
+def study_settings(root, plan):
+    """Plan settings plus registered extensions, with their hashes."""
+    settings = dict(plan.get("settings", {}))
+    path = Path(root) / EXTENSIONS
+    hashes = {}
+    if path.exists():
+        extensions = json.loads(path.read_text())
+        if extensions["plan_sha256"] != plan_hash(plan):
+            raise ValueError("Extensions belong to a different plan")
+        for name, cfg in extensions["settings"].items():
+            settings[name] = cfg
+            hashes[name] = plan_hash(cfg)
+    return settings, hashes
+
+
+def study_methods(root, plan):
+    """Base methods, then registered extensions in a fixed order."""
+    _, hashes = study_settings(root, plan)
+    return (*METHODS, *(m for m in EXTRA_METHODS if m in hashes))
 
 
 def file_hash(path):
@@ -115,6 +180,10 @@ def load_sample(root, plan, case, stage):
             or image.shape != imagenet.IMAGE_SHAPE
             or not np.isfinite(image).all()):
         raise ValueError(f"Invalid or mismatched sample: {stem}")
+    if stage in EXTRA_METHODS:
+        _, hashes = study_settings(root, plan)
+        if record.get("settings_sha256") != hashes.get(stage):
+            raise ValueError(f"Settings changed: {stem}")
     if stage != "references":
         reference, _ = load_sample(root, plan, case, "references")
         if record.get("reference_sha256") != gallery.digest(reference):
@@ -202,6 +271,9 @@ def generate(root, stage, limit=None, batch_size=1):
     if file_hash(plan["checkpoint"]) != plan["checkpoint_sha256"]:
         raise ValueError("Checkpoint changed")
     cases = plan["cases"][:limit]
+    settings, settings_hashes = study_settings(root, plan)
+    if stage not in settings:
+        raise ValueError(f"Stage {stage} is not registered in this study")
     pending = []
     for case in cases:
         name = "reference" if stage == "references" else stage
@@ -214,7 +286,8 @@ def generate(root, stage, limit=None, batch_size=1):
     if stage != "references":
         for case in pending:
             load_sample(root, plan, case, "references")
-    importing = plan["source"]["kind"] == "existing_gallery" and stage != "pcfm"
+    importing = (plan["source"]["kind"] == "existing_gallery"
+                 and stage in ("references", "pigdm", "ldf"))
     real = plan["source"]["kind"] == "real" and stage == "references"
     model = None
     if not importing and not real:
@@ -227,7 +300,7 @@ def generate(root, stage, limit=None, batch_size=1):
             model.net.p = jax.device_put(model.net.p)
         if np.ndim(normalizer.std) != 0:
             raise ValueError("Residual-norm equivalence needs scalar std")
-        cfg = runtime_settings(plan["settings"][stage])
+        cfg = runtime_settings(settings[stage])
         if stage == "references":
             sample = jax.jit(lambda key: generate_unconstrained(
                 model, normalizer, num_samples=1, rng=key, **cfg,
@@ -333,6 +406,8 @@ def generate(root, stage, limit=None, batch_size=1):
             }),
         }
         compiled = True
+        if stage in settings_hashes:
+            record["settings_sha256"] = settings_hashes[stage]
         if importing:
             record["source_record"] = imported_record
             record["seconds"] = imported_record["seconds"]
@@ -350,8 +425,9 @@ def generate(root, stage, limit=None, batch_size=1):
 def main():
     jax.config.update("jax_compilation_cache_dir", ".jax_cache")
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--stage", choices=("init", "all", *STAGES, "evaluate"),
-                        required=True)
+    parser.add_argument("--stage", choices=(
+        "init", "all", "extend", *STAGES, *EXTRA_METHODS, "evaluate",
+    ), required=True)
     parser.add_argument("--output-dir",
                         default="results/imagenet_study_256_selected")
     parser.add_argument("--checkpoint", default=imagenet.CHECKPOINT_PATH)
@@ -360,6 +436,10 @@ def main():
     parser.add_argument("--reference-dir")
     parser.add_argument("--source-gallery")
     parser.add_argument("--pcfm-settings", help="JSON PCFM overrides")
+    parser.add_argument("--dps-settings", help="JSON DPS overrides (extend)")
+    parser.add_argument("--opc-settings", help="JSON OPC overrides (extend)")
+    parser.add_argument("--methods", default=",".join(EXTRA_METHODS),
+                        help="Comma-separated baselines to add (extend)")
     parser.add_argument(
         "--batch-size", type=int, default=1,
         help="Independent solves per batch; all keeps adaptive PiGDM at 1",
@@ -374,6 +454,14 @@ def main():
                    None if args.pcfm_settings is None else json.loads(
                        Path(args.pcfm_settings).read_text(),
                    ))
+    elif args.stage == "extend":
+        def overrides(path):
+            return None if path is None else json.loads(Path(path).read_text())
+        settings = extension_settings(
+            overrides(args.dps_settings), overrides(args.opc_settings),
+        )
+        extend(args.output_dir, {name: settings[name]
+                                 for name in args.methods.split(",")})
     elif args.stage == "all":
         root = Path(args.output_dir)
         if not (root / "plan.json").exists():

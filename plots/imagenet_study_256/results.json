@@ -3179,6 +3179,36 @@
       "hole_rmse": 0.23450135646501435,
       "out_of_range_fraction": 0.005286993100190385,
       "seconds_median": 32.17463811599737
+    },
+    {
+      "method": "dps",
+      "planned": 256,
+      "successful": 256,
+      "paired_n": 251,
+      "fid_full": 74.00380662405863,
+      "paired_kid_full": 0.007064354283381856,
+      "fid_hole": 99.70037278143388,
+      "paired_kid_hole": 0.010185505505105113,
+      "observed_mae": 0.035717087134319335,
+      "observed_max_error": 0.9768165647983551,
+      "hole_rmse": 0.13954536071983115,
+      "out_of_range_fraction": 0.005205562231866803,
+      "seconds_median": 17.054114720500365
+    },
+    {
+      "method": "opc",
+      "planned": 256,
+      "successful": 256,
+      "paired_n": 251,
+      "fid_full": 89.20111830339235,
+      "paired_kid_full": 0.008156071061789002,
+      "fid_hole": 102.13924191368858,
+      "paired_kid_hole": 0.012063708677798874,
+      "observed_mae": 0.048357812244581785,
+      "observed_max_error": 1.0066933631896973,
+      "hole_rmse": 0.14073354059276527,
+      "out_of_range_fraction": 0.008055039769308183,
+      "seconds_median": 17.093630869247136
     }
   ],
   "role": "evaluation",
