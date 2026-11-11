@@ -281,6 +281,14 @@ Neither baseline closely matches the observed pixels at this budget.
 [`plots/imagenet_inpainting.tex`](plots/imagenet_inpainting.tex), a complete
 `table` float with FID and paired KID for the whole image and the hole.
 
+`experiments.imagenet_inpainting_projection` writes
+[`plots/figures/imagenet_inpainting_projection.png`](plots/figures/imagenet_inpainting_projection.png)
+(and `.pdf`): one selected case (107) with every method's raw output and the
+same output after an exact final projection (copying the observed pixels,
+which is what one Gauss-Newton step does for this linear constraint).
+`--rank N` lists the cases where projected baselines show the largest seams
+relative to LDF.
+
 ## Benchmarks
 
 ```bash
