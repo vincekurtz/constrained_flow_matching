@@ -234,30 +234,35 @@ def _table_record(variant, time_ms, violation, problem_options=None,
     }
 
 
-def test_latex_table_pivots_methods_into_column_pairs():
-    """One row per scenario, equality above inequality, bolded by rule."""
+def test_latex_table_pivots_scenarios_into_column_pairs():
+    """One row per method, equality columns left of inequality, bolded."""
     ineq = {"constraint": "right_half"}
     records = [
         _table_record("cbf", 318.0, 0.0, ineq, num_nan=1,
                       label="Star (ineq.)"),
-        _table_record("ldf", 7.7, 2.6e-3),
-        _table_record("pcfm", 29.6, 4.5e-8),
+        _table_record("ldf", 7.7, 2.6e-3, label="Star (eq.)"),
+        _table_record("pcfm", 29.6, 4.5e-8, label="Star (eq.)"),
         _table_record("ldf_projected", 7.9, 0.0, ineq,
                       label="Star (ineq.)"),
     ]
     lines = sweep.render_latex_table(records).splitlines()
-    rows = [line for line in lines if line.startswith("Star")]
-    def empty(n):
-        """``n`` blank Time/Viol. pairs."""
-        return " & ".join(["---"] * 2 * n)
-
-    assert rows == [
-        rf"Star & {empty(5)} & 29.6 & \scib{{4.5}}{{-8}} & {empty(6)} "
-        r"& \textbf{7.7} & \sci{2.6}{-3} & --- & --- \\",
-        rf"Star (ineq.) & {empty(4)} & 318.0 & \textbf{{0}}~$\dagger$ "
-        rf"& {empty(7)} & --- & --- & \textbf{{7.9}} & \textbf{{0}} \\",
-    ]
-    assert lines.index(rows[1]) == lines.index(rows[0]) + 2
+    assert lines[2] == (r" & \multicolumn{2}{c}{Equality constraints} "
+                        r"& \multicolumn{2}{c}{Inequality constraints} \\")
+    # The kind header replaces the (eq.)/(ineq.) suffix.
+    assert lines[4] == (r" & \multicolumn{2}{c}{Star} "
+                        r"& \multicolumn{2}{c}{Star} \\")
+    dash = r"\multicolumn{2}{c}{---}"
+    body = "\n".join(lines[lines.index(r"\midrule") + 1:-2])
+    assert body == "\n".join([
+        r"CBF% ~\citep{safeflow2025}",
+        rf" & {dash} & 318.0 & \textbf{{0}}~$\dagger$ \\",
+        r"\addlinespace",
+        r"PCFM% ~\citep{utkarsh2025pcfm}",
+        rf" & 29.6 & \scib{{4.5}}{{-8}} & {dash} \\",
+        r"\midrule",
+        rf"LDF (ours) & \textbf{{7.7}} & \sci{{2.6}}{{-3}} & {dash} \\",
+        rf"\quad + proj. & {dash} & \textbf{{7.9}} & \textbf{{0}} \\",
+    ])
 
 
 def test_latex_table_refuses_a_scenario_at_two_step_counts():
@@ -286,8 +291,8 @@ def test_latex_float_matches_the_paper_layout():
     assert "across 20 samples" in text
     assert r"within 20\% of the lowest" in text
     assert r"below $10^{-6}$" in text
-    # Citations are commented out, as in the paper's header row.
-    assert "& \\multicolumn{2}{c}{PCFM\n% ~\\citep{utkarsh2025pcfm}\n}" in text
+    # Citations are commented out so the row labels stay short.
+    assert "PCFM% ~\\citep{utkarsh2025pcfm}\n" in text
     assert r"\cite{" not in text.replace(r"% ~\citep{", "")
     uncommented = re.sub(r"(?<!\\)%.*", "", text)
     assert uncommented.count("{") == uncommented.count("}")

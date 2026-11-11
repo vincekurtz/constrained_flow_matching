@@ -8,6 +8,7 @@ import hashlib
 import json
 import math
 import platform
+import re
 import subprocess
 import time
 import tomllib
@@ -349,30 +350,37 @@ def render_table(records, fmt: str = "markdown") -> str:
     return "\n".join(lines)
 
 
-# (variant, header, citation key) for the LaTeX columns; unlisted variants
-# are appended. The paper keeps the citations as
-# LaTeX comments so the headers stay short.
-LATEX_COLUMNS = [
-    ("penalty", "Penalty only", None),
-    ("penalty_projected", "Penalty + proj.", None),
+# (variant, row label, citation key) for the LaTeX rows, one row per
+# variant; unlisted variants are appended. Each ``_projected`` variant sits
+# indented under its base method. The paper keeps the citations as LaTeX
+# comments so the labels stay short.
+LATEX_ROWS = [
+    ("penalty", "Penalty", None),
+    ("penalty_projected", None, None),
     ("time_varying_penalty", "Time-varying penalty", None),
-    ("time_varying_penalty_projected", "Time-varying penalty + proj.", None),
+    ("time_varying_penalty_projected", None, None),
     ("cbf", "CBF", "safeflow2025"),
     ("pcfm", "PCFM", "utkarsh2025pcfm"),
     ("pigdm", r"$\Pi$GDM", "pokle2024training"),
-    ("pigdm_projected", r"$\Pi$GDM + proj.", None),
+    ("pigdm_projected", None, None),
     ("opc", "OPC", "peng2024improving"),
-    ("opc_projected", "OPC + proj.", None),
+    ("opc_projected", None, None),
     ("dps", "DPS", "chung2023dps"),
-    ("dps_projected", "DPS + proj.", None),
-    ("ldf", "LDF (no proj.)", None),
-    ("ldf_projected", "LDF + proj.", None),
+    ("dps_projected", None, None),
+    ("ldf", "LDF (ours)", None),
+    ("ldf_projected", None, None),
 ]
+LATEX_PROJECTED_LABEL = r"\quad + proj."
+# Our method's rows are set off from the baselines by a rule.
+LATEX_OURS = "ldf"
 
-# Bold times are within this factor of the fastest in their row; bold
+# Bold times are within this factor of the fastest for their problem; bold
 # violations are below the threshold, near single-precision round-off.
 LATEX_TIME_FACTOR = 1.2
 LATEX_VIOLATION_THRESHOLD = 1e-6
+
+# The constraint-kind header already says which star variant a column is.
+_KIND_SUFFIX = re.compile(r"\s*\((?:eq|ineq)\.\)$")
 
 
 def _latex_violation(value: float, num_nan: int) -> str:
@@ -392,8 +400,9 @@ def _latex_violation(value: float, num_nan: int) -> str:
 def render_latex_table(records) -> str:
     """Render benchmark records as the paper's LaTeX tabular.
 
-    One row per scenario (equality first), a Time/Viol. pair per method.
-    Each scenario must be recorded at a single step count.
+    One row per method variant, a Time/Viol. column pair per scenario,
+    with equality scenarios grouped left of inequality ones. Each
+    scenario must be recorded at a single step count.
     """
     kinds = {}
 
@@ -409,73 +418,89 @@ def render_latex_table(records) -> str:
     cells: Dict[Any, Dict[str, Dict[str, Any]]] = {}
     for r in records:
         label = r.get("problem_label") or problems.get(r["problem"]).label
-        row = (kind(r) != constraints.EQUALITY, r["problem"], label,
-               r["steps"])
-        column = r.get("variant") or r["method"]
-        if column in cells.setdefault(row, {}):
+        scenario = (kind(r) != constraints.EQUALITY, r["problem"], label,
+                    r["steps"])
+        variant = r.get("variant") or r["method"]
+        if variant in cells.setdefault(scenario, {}):
             raise ValueError(
-                f"two results for {column!r} on {label} at {r['steps']} "
+                f"two results for {variant!r} on {label} at {r['steps']} "
                 "steps; remove the stale one from the results directory"
             )
-        cells[row][column] = r
-
-    columns = list(LATEX_COLUMNS)
-    known = {name for name, _, _ in columns}
-    for per_row in cells.values():
-        for name, r in per_row.items():
-            if name not in known:
-                columns.append((name, r["method_label"], None))
-                known.add(name)
+        cells[scenario][variant] = r
 
     order = list(problems.all_problems())
-    rows = sorted(cells, key=lambda k: (
+    scenarios = sorted(cells, key=lambda k: (
         k[0], order.index(k[1]) if k[1] in order else 99, k[2], k[3],
     ))
-    scenarios = [k[:3] for k in rows]
-    for k in rows:
-        if scenarios.count(k[:3]) > 1:
+    names = [k[:3] for k in scenarios]
+    for k in scenarios:
+        if names.count(k[:3]) > 1:
             raise ValueError(
                 f"{k[2]} was run at more than one step count; the table has "
                 "no Steps column, so keep one resolution per scenario"
             )
 
-    def group(header, cite):
-        if cite is None:
-            return f"& \\multicolumn{{2}}{{c}}{{{header}}}"
-        return (f"& \\multicolumn{{2}}{{c}}{{{header}\n"
-                f"% ~\\citep{{{cite}}}\n}}")
+    rows = [(name, label, cite) for name, label, cite in LATEX_ROWS]
+    known = {name for name, _, _ in rows}
+    for per_scenario in cells.values():
+        for name, r in per_scenario.items():
+            if name not in known:
+                rows.append((name, r["method_label"], None))
+                known.add(name)
+    present = {name for per in cells.values() for name in per}
+    rows = [row for row in rows if row[0] in present]
 
-    groups = "\n".join(group(header, cite) for _, header, cite in columns)
-    rules = "".join(
-        f"\\cmidrule(lr){{{2 + 2 * i}-{3 + 2 * i}}}"
-        for i in range(len(columns))
-    )
+    # Header: constraint kind, then problem, then Time/Viol.
     lines = [
-        r"\begin{tabular}{l" + "cc" * len(columns) + "}",
+        r"\begin{tabular}{@{}l" + "cc" * len(scenarios) + "@{}}",
         r"\toprule",
-        groups + r" \\",
-        rules,
-        " & ".join(["Problem"] + ["Time", "Viol."] * len(columns)) + r" \\",
+    ]
+    spans, rules, col = [], [], 2
+    for inequality in (False, True):
+        width = 2 * sum(k[0] == inequality for k in scenarios)
+        if not width:
+            continue
+        title = "Inequality" if inequality else "Equality"
+        spans.append(rf"\multicolumn{{{width}}}{{c}}{{{title} constraints}}")
+        rules.append(rf"\cmidrule(lr){{{col}-{col + width - 1}}}")
+        col += width
+    lines += [" & ".join([""] + spans) + r" \\", "".join(rules)]
+    lines.append(" & ".join([""] + [
+        rf"\multicolumn{{2}}{{c}}{{{_KIND_SUFFIX.sub('', k[2])}}}"
+        for k in scenarios
+    ]) + r" \\")
+    lines.append("".join(
+        rf"\cmidrule(lr){{{2 + 2 * i}-{3 + 2 * i}}}"
+        for i in range(len(scenarios))
+    ))
+    lines += [
+        " & ".join(["Method"] + ["Time", "Viol."] * len(scenarios)) + r" \\",
         r"\midrule",
     ]
 
-    for i, row in enumerate(rows):
-        if i and row[0] != rows[i - 1][0]:
-            lines.append(r"\midrule")
-        per_row = cells[row]
-        fastest = min(
-            (r["mean_time_ms"] for r in per_row.values()
-             if math.isfinite(r["mean_violation"])), default=math.inf,
-        )
-        out = [row[2]]
-        for name, _, _ in columns:
-            r = per_row.get(name)
+    fastest = {
+        k: min((r["mean_time_ms"] for r in cells[k].values()
+                if math.isfinite(r["mean_violation"])), default=math.inf)
+        for k in scenarios
+    }
+    for i, (name, label, cite) in enumerate(rows):
+        family = name.removesuffix("_projected")
+        if i and family != rows[i - 1][0].removesuffix("_projected"):
+            lines.append(r"\midrule" if family == LATEX_OURS
+                         else r"\addlinespace")
+        if label is None:
+            label = LATEX_PROJECTED_LABEL
+        if cite is not None:
+            label += f"% ~\\citep{{{cite}}}\n"
+        out = [label]
+        for k in scenarios:
+            r = cells[k].get(name)
             if r is None:
-                out += ["---", "---"]
+                out.append(r"\multicolumn{2}{c}{---}")
                 continue
             time_ms = f"{r['mean_time_ms']:.1f}"
             if (math.isfinite(r["mean_violation"])
-                    and r["mean_time_ms"] <= LATEX_TIME_FACTOR * fastest):
+                    and r["mean_time_ms"] <= LATEX_TIME_FACTOR * fastest[k]):
                 time_ms = rf"\textbf{{{time_ms}}}"
             out += [time_ms,
                     _latex_violation(r["mean_violation"],
@@ -491,15 +516,18 @@ LATEX_CAPTION = "\n".join([
     "Mean per-sample generation time (ms) and constraint violation across "
     "{num_samples} samples.",
     r"Violation is $\norm{{g(x_1)}}$ for equality-constrained problems "
-    "(top) and",
-    r"$\norm{{\relu(h(x_1))}}$ for inequality-constrained problems (bottom).",
-    r"Bold times are within {time_percent}\% of the lowest time in that "
-    r"row; bold violations are below $10^{{{threshold_exponent}}}$",
+    "(left) and",
+    r"$\norm{{\relu(h(x_1))}}$ for inequality-constrained problems (right).",
+    r"``+ proj.'' rows apply a final Gauss-Newton projection to the samples "
+    "of the method above.",
+    r"Bold times are within {time_percent}\% of the lowest time for that "
+    r"problem; bold violations are below $10^{{{threshold_exponent}}}$",
     "(near machine precision for single-precision float).",
     r"$^\dagger$At least one NaN error produced during generation; "
     "average shown is across non-NaN samples.",
     r"\textit{{failed}}: every sample produced a NaN error; such methods "
     "are excluded from the bold-time comparison.",
+    "---: the method does not handle that constraint type.",
 ])
 
 
