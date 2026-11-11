@@ -176,37 +176,7 @@ and dual per observed RGB value. PCFM uses 10 steps, one projection per
 step, and disables its optional relaxed correction and final projection.
 All three use the native model time and image coordinates.
 
-See the [native-model comparison](plots/figures/imagenet_native_comparison.png)
-and [five-case gallery](plots/figures/imagenet_native_inpainting_five.png).
-These remain exploratory results: LDF closely matches the observed pixels,
-but both methods can produce visible artifacts in the missing region.
-The gallery retains all five random cases and uses one configuration per
-method; case 1 was used to tune PiGDM's integration settings.
-
-To reproduce the gallery with adaptive PiGDM integration, run each stage
-and inspect its outputs before proceeding:
-
-```bash
-uv run -m experiments.imagenet_inpainting_gallery --stage references \
-    --pigdm-settings experiments/imagenet_native/gallery_pigdm.json
-uv run -m experiments.imagenet_inpainting_gallery --stage pigdm \
-    --pigdm-settings experiments/imagenet_native/gallery_pigdm.json
-uv run -m experiments.imagenet_inpainting_gallery --stage ldf \
-    --pigdm-settings experiments/imagenet_native/gallery_pigdm.json
-uv run -m experiments.imagenet_inpainting_gallery --stage figure
-```
-
-Raw samples and records are saved to `results/imagenet_native_gallery`.
-Figures have adjacent JSON files with settings, input hashes, and pixel
-errors. Further tuning plans are in [experiments/imagenet_native](experiments/imagenet_native),
-for use with `uv run -m experiments.imagenet_native_tuning --help`.
 See `NOTICE` and `licenses/JiT-MIT.txt` for model attribution.
-
-The [three-method calibration gallery](plots/imagenet_three_method_gallery/representatives.png)
-adds PCFM to the existing five cases. PCFM settings were selected from
-[twelve candidates](plots/imagenet_pcfm_calibration.csv) by missing-region
-FID on those cases; visible artifacts remain. Reproduce that search with
-`uv run --group evaluation -m experiments.imagenet_pcfm_calibration --stage run`.
 
 The larger study uses new paired reference images, masks, and sampler
 seeds. It saves whole-image and missing-region
@@ -253,8 +223,6 @@ sample stores the hash of those settings, so existing samples stay valid.
 ```bash
 # OPC's r_t^2 table, from 64 fresh unconstrained samples of the checkpoint
 uv run -m experiments.imagenet_posterior_variance
-# DPS step size and OPC guidance scale on the five calibration cases
-uv run --group evaluation -m experiments.imagenet_baseline_calibration --stage run
 S="uv run --group evaluation -m experiments.imagenet_inpainting_study \
     --output-dir results/imagenet_study_256_selected"
 $S --stage extend
@@ -266,8 +234,8 @@ uv run -m experiments.imagenet_inpainting_paper
 ```
 
 Both use 500 Midpoint steps (1000 network evaluations, as in DPS) and are
-calibrated on the five gallery cases by missing-region FID
-([summary](plots/imagenet_baseline_calibration.csv)). DPS uses
+calibrated by missing-region FID on five separate calibration cases
+(the PCFM settings were chosen the same way). DPS uses
 `zeta' = 0.1`; larger steps added artifacts without fitting the observed
 pixels better. OPC's estimated `r_t^2` is 12-140x below PiGDM's Gaussian
 prior for this model, which makes the guidance very stiff: adaptive Tsit5

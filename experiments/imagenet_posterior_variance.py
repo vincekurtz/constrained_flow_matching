@@ -5,8 +5,9 @@
 The JiT checkpoint has no bundled training set, so ``x1`` samples are fresh
 unconstrained model samples (the same sampler as the study references,
 quantized to 8 bits). Their seeds are drawn from a dedicated generator and
-checked against the study and gallery plans, so no inpainting target is
-reused. Writes ``experiments/posterior_variance/imagenet.json``.
+checked against the study plan and the five calibration cases the DPS,
+OPC, and PCFM settings were chosen on, so no inpainting target is reused.
+Writes ``experiments/posterior_variance/imagenet.json``.
 """
 
 import argparse
@@ -21,22 +22,19 @@ import numpy as np
 from cfm.core import checkpoint
 from cfm.core import posterior_variance as pv
 from cfm.methods.ldf import generate_unconstrained
+from experiments import imagenet_inpainting_gallery as gallery
 from problems import imagenet
 
 OUTPUT = Path("experiments/posterior_variance/imagenet.json")
-EXCLUDED_PLANS = (
-    "results/imagenet_study_256_selected/plan.json",
-    "results/imagenet_native_gallery/plan.json",
-)
+STUDY_PLAN = Path("results/imagenet_study_256_selected/plan.json")
+CALIBRATION_SEED = 20261107  # the original five-case gallery
 
 
 def used_seeds():
-    seeds = set()
-    for path in EXCLUDED_PLANS:
-        if Path(path).exists():
-            for case in json.loads(Path(path).read_text())["cases"]:
-                seeds.update((case["reference_seed"], case["sample_seed"]))
-    return seeds
+    cases = gallery.make_cases(CALIBRATION_SEED)
+    if STUDY_PLAN.exists():
+        cases += json.loads(STUDY_PLAN.read_text())["cases"]
+    return {s for c in cases for s in (c["reference_seed"], c["sample_seed"])}
 
 
 def main():

@@ -7,7 +7,6 @@ import pytest
 
 from cfm.methods import ldf
 from cfm.models.normalizer import Normalizer
-from experiments.imagenet_native_tuning import initialized_ldf, resolved
 from problems.imagenet import fixed_pixel_constraint
 
 
@@ -16,22 +15,6 @@ class ToyFlow:
 
     def __call__(self, x, t):
         return -.3 * x + .1 * jnp.sin(x.mean(axis=(1, 2, 3), keepdims=True))
-
-
-@pytest.mark.parametrize("solver", [diffrax.Midpoint(), diffrax.Heun()])
-def test_zero_initial_duals_reproduce_public_ldf(solver):
-    model, normalizer = ToyFlow(), Normalizer(.5, 1.)
-    reference = np.array([.1, .3, .5, .7]).reshape(2, 2, 1)
-    constraint = fixed_pixel_constraint(reference, np.array([[1, 0], [1, 0]]))
-    key = jax.random.key(5)
-    cfg = dict(dt=.01, penalty_weight=2., rescale_factor=.3,
-               rescale_exponent=1.5, solver=solver)
-    expected = ldf.generate(model, normalizer, constraint,
-                            num_samples=1, rng=key, **cfg)
-    image, steps = initialized_ldf(model, normalizer, constraint, key,
-                                   dual_cancel=0., **cfg)
-    np.testing.assert_allclose(image, expected.x[0], atol=1e-6)
-    assert int(steps) == int(expected.num_steps)
 
 
 def test_initial_duals_cancel_only_the_initial_penalty_force():
@@ -45,15 +28,6 @@ def test_initial_duals_cancel_only_the_initial_penalty_force():
     np.testing.assert_allclose(xdot, model(x0, jnp.array([0.])), atol=1e-7)
     np.testing.assert_allclose(dualdot, .7 * residual / (1 + 1e-6)**2,
                                atol=1e-6)
-
-
-def test_plan_rejects_unsupported_or_mistyped_settings():
-    with pytest.raises(ValueError, match="Unknown settings"):
-        resolved(dict(name="trial", method="ldf", data_scale=.5))
-    assert resolved(dict(name="trial", method="pigdm", solver="heun"))[
-        "solver"] == "heun"
-    with pytest.raises(ValueError, match="both rtol and atol"):
-        resolved(dict(name="trial", method="ldf", rtol=.001))
 
 
 @pytest.mark.parametrize("method", ["unconstrained", "ldf", "pigdm"])

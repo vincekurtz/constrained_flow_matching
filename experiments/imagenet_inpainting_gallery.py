@@ -1,30 +1,22 @@
-"""Five unselected random references and masks using the plain velocity model.
+"""Shared helpers for the ImageNet inpainting study.
 
-Run stages in order: references, pigdm, ldf, figure. Every planned case is
-included, including artifacts. No per-case tuning or output compositing.
+Case and mask generation, record hashing and validation, image saving,
+and the default PiGDM/LDF settings used by ``imagenet_inpainting_study``.
 """
 
-import argparse
 import hashlib
 import json
 from pathlib import Path
-import time
 
 import diffrax
-import jax
-import jax.numpy as jnp
-import matplotlib.pyplot as plt
 import numpy as np
 from PIL import Image
 
 from cfm import methods
-from cfm.core import checkpoint
-from cfm.methods.ldf import generate_unconstrained
-from cfm.models.jit_image import JiTImageFlow
-from experiments.imagenet_native_tuning import SOLVERS
 from problems import imagenet
 
-STAGES = ("references", "pigdm", "ldf", "figure")
+SOLVERS = {"midpoint": diffrax.Midpoint, "heun": diffrax.Heun,
+           "euler": diffrax.Euler, "tsit5": diffrax.Tsit5}
 
 
 def make_cases(seed, count=5, size=512, hole=192, margin=32):
@@ -102,30 +94,6 @@ def settings(ldf_overrides=None, pigdm_overrides=None):
     return result
 
 
-def initialize(root, checkpoint_path, seed, ldf_overrides=None,
-               pigdm_overrides=None):
-    root = Path(root)
-    root.mkdir(parents=True, exist_ok=True)
-    with Path(checkpoint_path).open("rb") as stream:
-        checkpoint_hash = hashlib.file_digest(stream, "sha256").hexdigest()
-    plan = {
-        "experiment_seed": seed, "checkpoint_sha256": checkpoint_hash,
-        "selection": "All five cases drawn before sampling; no filtering",
-        "image_shape": list(imagenet.IMAGE_SHAPE),
-        "settings": settings(ldf_overrides, pigdm_overrides),
-        "cases": make_cases(seed),
-    }
-    path = root / "plan.json"
-    if path.exists():
-        if json.loads(path.read_text()) != plan:
-            raise ValueError(
-                "Existing plan differs; use a new output directory"
-            )
-    else:
-        write_json(path, plan)
-    return plan
-
-
 def reference_and_mask(root, case):
     folder = Path(root) / f"case_{case['id']}"
     with Image.open(folder / "reference.png") as image:
@@ -149,193 +117,3 @@ def validate_record(record, plan, case, stage, reference, observed, image):
         raise ValueError(f"Invalid sample for case {case['id']}, {stage}")
     if record.get("sample_sha256") != digest(image):
         raise ValueError(f"Sample hash mismatch for case {case['id']}, {stage}")
-
-
-def generate(stage, root, checkpoint_path, seed, ldf_overrides=None,
-             pigdm_overrides=None):
-    plan = initialize(root, checkpoint_path, seed, ldf_overrides,
-                      pigdm_overrides)
-    model, normalizer = checkpoint.load(checkpoint_path)
-    if (not isinstance(model, JiTImageFlow)
-            or model.data_shape != imagenet.IMAGE_SHAPE):
-        raise ValueError("Expected the prepared JiT image checkpoint")
-    cfg = plan["settings"][stage]
-    runtime_cfg = dict(cfg)
-    if "solver" in runtime_cfg:
-        runtime_cfg["solver"] = SOLVERS[runtime_cfg["solver"]]()
-    rtol, atol = runtime_cfg.pop("rtol", None), runtime_cfg.pop("atol", None)
-    if rtol is not None:
-        runtime_cfg["stepsize_controller"] = diffrax.PIDController(
-            rtol=rtol, atol=atol,
-        )
-    if stage == "references":
-        sample = jax.jit(lambda key: generate_unconstrained(
-            model, normalizer, num_samples=1, rng=key, **runtime_cfg,
-        ).x[0])
-    else:
-        method = methods.get(stage)
-
-        @jax.jit
-        def sample(key, reference, indices):
-            constraint = imagenet.indexed_pixel_constraint(
-                reference, indices,
-                reduction="norm" if stage == "pigdm" else "pixels",
-            )
-            return method.run(
-                model, normalizer, constraint, num_samples=1, rng=key,
-                **runtime_cfg,
-            ).x[0]
-
-    for case in plan["cases"]:
-        folder = Path(root) / f"case_{case['id']}"
-        folder.mkdir(parents=True, exist_ok=True)
-        name = "reference" if stage == "references" else stage
-        stem = folder / name
-        start = time.perf_counter()
-        if stage == "references":
-            image = np.asarray(sample(jax.random.key(case["reference_seed"])))
-        else:
-            reference, observed = reference_and_mask(root, case)
-            validate_record(
-                json.loads((folder / "reference.json").read_text()),
-                plan, case, "references", reference, observed,
-                np.load(folder / "reference.npy"),
-            )
-            indices = np.flatnonzero(np.broadcast_to(
-                observed[..., None], reference.shape,
-            )).astype(np.int32)
-            image = np.asarray(sample(
-                jax.random.key(case["sample_seed"]),
-                jnp.asarray(reference), jnp.asarray(indices),
-            ))
-        if not np.isfinite(image).all():
-            raise RuntimeError(
-                f"Non-finite output in case {case['id']}, {stage}"
-            )
-        seconds = time.perf_counter() - start
-        save_image(stem, image)
-        if stage == "references":
-            reference, observed = reference_and_mask(root, case)
-            Image.fromarray(observed.astype(np.uint8) * 255).save(
-                folder / "mask.png"
-            )
-            Image.fromarray(np.rint(np.where(
-                observed[..., None], reference, .5,
-            ) * 255).astype(np.uint8)).save(folder / "masked.png")
-        record = {
-            "checkpoint_sha256": plan["checkpoint_sha256"],
-            "case": case, "method": stage, "settings": cfg,
-            "coordinates": "native",
-            "model": {"class_index": model.label, "cfg": model.cfg,
-                      "noise_scale": model.noise_scale, "t_eps": model.t_eps},
-            "reference_sha256": digest(reference),
-            "mask_sha256": digest(observed), "sample_sha256": digest(image),
-            "seconds": seconds, "min": float(image.min()),
-            "max": float(image.max()),
-        }
-        if stage != "references":
-            error = np.abs(image[observed] - reference[observed])
-            record.update(observed_mae=float(error.mean()),
-                          observed_max_error=float(error.max()))
-        write_json(stem.with_suffix(".json"), record)
-        print(json.dumps(record), flush=True)
-
-
-def comparison(root, figure_path):
-    plan = json.loads((Path(root) / "plan.json").read_text())
-    if plan["cases"] != make_cases(plan["experiment_seed"]):
-        raise ValueError("Figure must include all five planned random cases")
-    fig, axes = plt.subplots(len(plan["cases"]), 4, squeeze=False,
-                             figsize=(14, 3.65 * len(plan["cases"])))
-    records = []
-    for row, case in enumerate(plan["cases"]):
-        folder = Path(root) / f"case_{case['id']}"
-        reference, observed = reference_and_mask(root, case)
-        ref_record = json.loads((folder / "reference.json").read_text())
-        validate_record(ref_record, plan, case, "references", reference,
-                        observed, np.load(folder / "reference.npy"))
-        records.append(ref_record)
-        panels = [reference, np.where(observed[..., None], reference, .5)]
-        for stage in ("pigdm", "ldf"):
-            image = np.load(folder / f"{stage}.npy")
-            record = json.loads((folder / f"{stage}.json").read_text())
-            validate_record(record, plan, case, stage, reference,
-                            observed, image)
-            records.append(record)
-            panels.append(image)
-        for col, image in enumerate(panels):
-            ax = axes[row, col]
-            ax.imshow(np.clip(image, 0, 1))
-            ax.set_xticks([])
-            ax.set_yticks([])
-            for spine in ax.spines.values():
-                spine.set_visible(False)
-            if row == 0:
-                title = ("Reference", "Masked reference", "PiGDM", "LDF")[col]
-                ax.set_title(title, fontsize=16)
-        axes[row, 0].set_ylabel(f"Case {case['id']}", fontsize=14)
-        axes[row, 0].set_xlabel(f"Reference seed {case['reference_seed']}",
-                                fontsize=8)
-        for col, record in zip((2, 3), records[-2:]):
-            axes[row, col].set_xlabel(
-                f"Known MAE {record['observed_mae']:.2g} · "
-                f"max {record['observed_max_error']:.2g}", fontsize=9,
-            )
-    fig.subplots_adjust(left=.045, right=.995, top=.97, bottom=.065,
-                        wspace=.025, hspace=.13)
-    gains = plan["settings"]["ldf"]
-    initialization = gains.get("initial_dual_scale", 0.) or 0.
-    ldf_label = (
-        f"LDF: c={gains['penalty_weight']:g}, "
-        f"p={gains['rescale_exponent']:g}, "
-        f"λ₀={initialization:g}G(x₀), dt={gains['dt']:g}."
-    )
-    pigdm = plan["settings"]["pigdm"]
-    pigdm_label = (
-        f"PiGDM: {pigdm.get('solver', 'midpoint')}, "
-        f"guidance={pigdm['guidance_scale']:g}, dt₀={pigdm['dt']:g}"
-    )
-    if pigdm.get("rtol") is not None:
-        pigdm_label += f", rtol={pigdm['rtol']:g}, atol={pigdm['atol']:g}"
-    fig.text(.5, .012, "Five random cases, all retained; "
-             "one configuration per method. "
-             "Same pretrained velocity model and image coordinates.\n"
-             + ldf_label + "\n" + pigdm_label + ".\n"
-             "Gray regions are missing. Raw sampler outputs; no pixel "
-             "compositing or final projection.", ha="center", fontsize=10)
-    path = Path(figure_path)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    fig.savefig(path, dpi=180, bbox_inches="tight")
-    plt.close(fig)
-    write_json(path.with_suffix(".json"), {"plan": plan, "records": records})
-    print(f"Saved {path}")
-
-
-def main():
-    jax.config.update("jax_compilation_cache_dir", ".jax_cache")
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--stage", choices=STAGES, required=True)
-    parser.add_argument("--checkpoint", default=imagenet.CHECKPOINT_PATH)
-    parser.add_argument("--output-dir",
-                        default="results/imagenet_native_gallery")
-    parser.add_argument("--seed", type=int, default=20261107)
-    parser.add_argument("--ldf-settings",
-                        help="JSON gain/initial-dual overrides, fixed per case")
-    parser.add_argument("--pigdm-settings",
-                        help="JSON guidance/solver overrides, fixed per case")
-    parser.add_argument("--figure",
-                        default="plots/figures/imagenet_native_inpainting_five.png")
-    args = parser.parse_args()
-    if args.stage == "figure":
-        comparison(args.output_dir, args.figure)
-    else:
-        overrides = (None if args.ldf_settings is None else
-                     json.loads(Path(args.ldf_settings).read_text()))
-        pigdm_overrides = (None if args.pigdm_settings is None else
-                          json.loads(Path(args.pigdm_settings).read_text()))
-        generate(args.stage, args.output_dir, args.checkpoint, args.seed,
-                 overrides, pigdm_overrides)
-
-
-if __name__ == "__main__":
-    main()

@@ -179,8 +179,8 @@ PROBLEM = Problem(
         # is far below PiGDM's prior, so the guidance is stiff: adaptive
         # Tsit5 exceeds 2000 steps, and PiGDM's scale 0.6 diverges with
         # fixed steps. Midpoint steps match DPS's 1000 evaluations; the
-        # scale is the best of {0.6, ..., 0.0006} on the five calibration
-        # cases (experiments/imagenet_baseline_calibration.py).
+        # scale is the best of {0.6, ..., 0.0006} by missing-region FID on
+        # five held-aside calibration cases.
         "opc": {
             "dt": 0.002, "guidance_scale": 0.002, "eps_reg": 1e-8,
             "save_trajectory": False,
@@ -188,8 +188,8 @@ PROBLEM = Problem(
                 "experiments/posterior_variance/imagenet.json",
         },
         # 500 Midpoint steps: 1000 network evaluations, as in DPS. The step
-        # size is the best of {0.1, ..., 10} on the five calibration cases
-        # (experiments/imagenet_dps_calibration.py).
+        # size is the best of {0.1, ..., 10} by missing-region FID on the
+        # same five calibration cases.
         "dps": {"dt": 0.002, "step_size": 0.1, "save_trajectory": False},
     },
     supported_methods=("ldf", "pigdm", "pcfm", "opc", "dps"),

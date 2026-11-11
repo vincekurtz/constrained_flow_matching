@@ -27,7 +27,6 @@ from cfm.core import checkpoint
 from cfm.methods.ldf import generate_unconstrained
 from cfm.models.jit_image import JiTImageFlow
 from experiments import imagenet_inpainting_gallery as gallery
-from experiments.imagenet_native_tuning import SOLVERS
 from problems import imagenet
 
 METHODS = ("pcfm", "pigdm", "ldf")
@@ -194,7 +193,7 @@ def load_sample(root, plan, case, stage):
 def runtime_settings(cfg):
     cfg = dict(cfg)
     if "solver" in cfg:
-        cfg["solver"] = SOLVERS[cfg["solver"]]()
+        cfg["solver"] = gallery.SOLVERS[cfg["solver"]]()
     rtol, atol = cfg.pop("rtol", None), cfg.pop("atol", None)
     if (rtol is None) != (atol is None):
         raise ValueError("Specify both rtol and atol")

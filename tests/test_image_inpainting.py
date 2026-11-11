@@ -155,21 +155,6 @@ def test_cli_uses_pretrained_unconstrained_step_size(monkeypatch):
     assert calls[1]["dt"] == .003
 
 
-def test_comparison_rejects_mixed_reference_runs(tmp_path):
-    import json
-    from experiments import imagenet_inpainting as example
-
-    folder = tmp_path / 'unconstrained'
-    folder.mkdir()
-    (folder / 'seed_0.json').write_text(json.dumps({
-        'checkpoint_sha256': 'model', 'reference_sha256': 'wrong reference',
-        'mask_sha256': 'wrong mask', 'method': 'unconstrained', 'seed': 0,
-    }))
-    with pytest.raises(ValueError, match='Mismatched experiment inputs'):
-        example.comparison(tmp_path, [0], {}, tmp_path / 'figure.png')
-    assert not (tmp_path / 'figure.png').exists()
-
-
 def test_missing_weights_explain_preparation(monkeypatch):
     def missing(_):
         raise FileNotFoundError("missing weights")
