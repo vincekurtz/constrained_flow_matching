@@ -13,7 +13,7 @@ Method & Time & Viol. & Time & Viol. & Time & Viol. & Time & Viol. & Time & Viol
 Penalty & \textbf{6.4} & \sci{3.6}{-2} & \textbf{102.1} & \sci{2.8}{-1} & \textbf{6.5} & \sci{2.2}{-2} & \textbf{34.6} & \sci{1.0}{-3} & \textbf{37.9} & \sci{5.9}{-3} & \textbf{82.3} & \sci{7.3}{-3} & \textbf{81.3} & \sci{5.5}{-3} \\
 \quad + proj. & \textbf{6.6} & \scib{1.3}{-7} & \textbf{103.8} & \scib{6.9}{-8} & 6.8 & \textbf{0} & \textbf{35.3} & \sci{6.6}{-3} & 43.0 & \sci{2.1}{-2} & \textbf{81.9} & \scib{2.4}{-8} & \textbf{81.7} & \scib{1.8}{-8} \\
 \addlinespace
-Time-varying penalty & 6.0 & \textit{failed} & 100.9 & \textit{failed} & \textbf{6.2} & \sci{4.7}{-3} & \textbf{33.5} & \sci{9.9}{-3} & \textbf{34.9} & \sci{1.2}{-2} & \textbf{80.7} & \sci{9.1}{-2} & \textbf{79.6} & \sci{2.1}{-1} \\
+TV penalty & 6.0 & \textit{failed} & 100.9 & \textit{failed} & \textbf{6.2} & \sci{4.7}{-3} & \textbf{33.5} & \sci{9.9}{-3} & \textbf{34.9} & \sci{1.2}{-2} & \textbf{80.7} & \sci{9.1}{-2} & \textbf{79.6} & \sci{2.1}{-1} \\
 \quad + proj. & 5.3 & \textit{failed} & 102.4 & \textit{failed} & \textbf{5.5} & \textbf{0} & \textbf{34.2} & \textbf{0} & \textbf{36.4} & \sci{6.7}{-4} & \textbf{80.2} & \scib{2.4}{-8} & \textbf{79.7} & \scib{1.8}{-8} \\
 \addlinespace
 CBF% ~\citep{safeflow2025}
@@ -42,7 +42,7 @@ LDF (ours) & \textbf{6.4} & \sci{2.6}{-3} & \textbf{102.4} & \sci{4.1}{-2} & \te
 \caption{Mean per-sample generation time (ms) and constraint violation across 20 samples.
 Violation is $\norm{g(x_1)}$ for equality-constrained problems (left) and
 $\norm{\relu(h(x_1))}$ for inequality-constrained problems (right).
-``+ proj.'' rows apply a final Gauss-Newton projection to the samples of the method above.
+TV penalty: time-varying penalty. ``+ proj.'' rows apply a final Gauss-Newton projection to the samples of the method above.
 Bold times are within 20\% of the lowest time for that problem; bold violations are below $10^{-6}$
 (near machine precision for single-precision float).
 $^\dagger$At least one NaN error produced during generation; average shown is across non-NaN samples.

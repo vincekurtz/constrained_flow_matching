@@ -357,7 +357,7 @@ def render_table(records, fmt: str = "markdown") -> str:
 LATEX_ROWS = [
     ("penalty", "Penalty", None),
     ("penalty_projected", None, None),
-    ("time_varying_penalty", "Time-varying penalty", None),
+    ("time_varying_penalty", "TV penalty", None),
     ("time_varying_penalty_projected", None, None),
     ("cbf", "CBF", "safeflow2025"),
     ("pcfm", "PCFM", "utkarsh2025pcfm"),
@@ -518,8 +518,8 @@ LATEX_CAPTION = "\n".join([
     r"Violation is $\norm{{g(x_1)}}$ for equality-constrained problems "
     "(left) and",
     r"$\norm{{\relu(h(x_1))}}$ for inequality-constrained problems (right).",
-    r"``+ proj.'' rows apply a final Gauss-Newton projection to the samples "
-    "of the method above.",
+    r"TV penalty: time-varying penalty. ``+ proj.'' rows apply a final "
+    "Gauss-Newton projection to the samples of the method above.",
     r"Bold times are within {time_percent}\% of the lowest time for that "
     r"problem; bold violations are below $10^{{{threshold_exponent}}}$",
     "(near machine precision for single-precision float).",
