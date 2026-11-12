@@ -107,7 +107,7 @@ def plot():
         ax.set_xlim(1, PLOT_TIME_TO_GO)
         ax.set_xticks(10.0 ** -np.arange(0, 13, 3))
         ax.set_xlabel(r"Time to go $1 - t$")
-        ax.set_ylabel(r"$K_{A_*}\,\|G(t) - A_*\|_2$")
+        ax.set_ylabel(r"$\rho(t)$")
         ax.grid(which="major", linestyle=":", alpha=0.4)
         ax.spines[["top", "right"]].set_visible(False)
         ax.legend(frameon=False, fontsize=11)
