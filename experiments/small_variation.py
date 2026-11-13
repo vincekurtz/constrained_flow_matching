@@ -1,19 +1,23 @@
-"""Obstacles (2): the small-variation condition (A4) near t = 1.
+"""Obstacles (2): the small-variation condition (B4) near t = 1.
 
 For each LDF sample, S is the set of constraints active at the end of
-denoising, G(t) = J_S(x_t) J_S(x_t)^T, and A_* = G(1). The plot shows
-K ||G(t) - A_*||_2 with K = ||A_*^{-1} + I/2||_2 + 1, which (A4) needs below 1.
+denoising, G(t) = J_S(x_t) J_S(x_t)^T, and A_* = G(1). (B4) needs
+
+    rho(t) := sqrt(5)/2 ||G(t) - A_*||_2 < kappa_0(A_*),
+
+with the dissipation margin kappa_0 of Lemma 5. The plot shows the ratio
+rho(t) / kappa_0(A_*), which must fall below 1.
 
 LDF (closed-form slack, exact 1 / (1 - t) gain) is integrated in float64 in
 sigma = -log(1 - t), so the time to go never loses precision. G at
-1 - t = 1e-17 stands in for G(1). The plot stops at 1 - t = 1e-13: near 1e-14
+1 - t = 1e-17 stands in for G(1). The plot stops at 1 - t = 3e-14: near 1e-14
 the state stops changing in float64 and G(t) equals A_* exactly.
 Run with ``python -m experiments.small_variation`` (about 20 s).
 """
 
 import jax
 
-jax.config.update("jax_enable_x64", True)  # lambda_min(A_*) reaches ~1e-13
+jax.config.update("jax_enable_x64", True)  # kappa_0(A_*) reaches ~1e-13
 
 import diffrax  # noqa: E402
 import jax.numpy as jnp  # noqa: E402
@@ -30,7 +34,7 @@ from cfm.core.solve import (  # noqa: E402
 
 FIGURE = "plots/figures/small_variation"
 ACTIVE_TOL = 1e-3  # h(x_1) >= -tol counts as active
-REF_TIME_TO_GO, PLOT_TIME_TO_GO = 1e-17, 1e-13
+REF_TIME_TO_GO, PLOT_TIME_TO_GO = 1e-17, 3e-14
 D_SIGMA, SAVE_EVERY = 0.002, 5
 
 
@@ -55,8 +59,21 @@ def log_time_flow(model, c, rescale_factor):
     return ode_fn
 
 
-def a4_curves(num_samples=40):
-    """Time to go and K ||G(t) - A_*||_2 per sample with active constraints."""
+def kappa0(A):
+    """Dissipation margin: half the min over active sets of lambda_min(-D_S).
+    """
+    k = len(A)
+    eye = np.eye(k)
+    margins = []
+    for mask in range(2**k):
+        E = np.diag([(mask >> j) & 1 for j in range(k)]).astype(float)
+        D = np.block([[-eye, eye - E], [eye - E, E - A - eye]])
+        margins.append(np.linalg.eigvalsh(-D)[0])
+    return 0.5 * min(margins)
+
+
+def b4_curves(num_samples=40):
+    """Time to go and rho(t) / kappa_0 per sample with active constraints."""
     problem = problems.get("obstacles")
     model, normalizer = checkpoint.load(problem.checkpoint_path)
     constraint = problem.make_constraint(scene_seed=0, num_obstacles=2)
@@ -88,26 +105,28 @@ def a4_curves(num_samples=40):
             J = np.asarray(jac(xs[:, i]))[:, S]
             G = J @ J.transpose(0, 2, 1)
             A = G[-1]
-            K = np.linalg.norm(np.linalg.inv(A) + 0.5 * np.eye(len(S)), 2) + 1
-            curves.append(K * np.linalg.norm(G - A, ord=2, axis=(1, 2)))
+            rho = np.sqrt(5) / 2 * np.linalg.norm(G - A, ord=2, axis=(1, 2))
+            curves.append(rho / kappa0(A))
     return np.exp(-sigmas), np.array(curves)
 
 
 def plot():
-    s, curves = a4_curves()
+    s, curves = b4_curves()
     keep = s >= PLOT_TIME_TO_GO
     s, curves = s[keep], curves[:, keep]
     with plt.rc_context({"font.size": 14, "font.family": "serif"}):
         fig, ax = plt.subplots(figsize=(6.5, 4.4))
         ax.plot(s, curves.T, color="C0", alpha=0.25, lw=0.8)
         ax.plot(s, np.median(curves, 0), color="C0", lw=2.2, label="Median")
-        ax.axhline(1.0, color="k", ls="--", lw=1.2, label="(A4) bound")
+        ax.axhline(1.0, color="k", ls="--", lw=1.2, label="(B4) bound")
         ax.set_xscale("log")
         ax.set_yscale("log")
         ax.set_xlim(1, PLOT_TIME_TO_GO)
         ax.set_xticks(10.0 ** -np.arange(0, 13, 3))
+        ax.set_yticks(10.0 ** np.arange(-12, 13, 4))
+        ax.set_ylim(1e-15, None)
         ax.set_xlabel(r"Time to go $1 - t$")
-        ax.set_ylabel(r"$\rho(t)$")
+        ax.set_ylabel(r"$\rho(t) / \kappa_0(A_*)$")
         ax.grid(which="major", linestyle=":", alpha=0.4)
         ax.spines[["top", "right"]].set_visible(False)
         ax.legend(frameon=False, fontsize=11)
